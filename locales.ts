@@ -1,0 +1,127 @@
+
+export const LANGUAGES = [
+  { id: 'en', name: 'English', flag: '🇺🇸' },
+  { id: 'sw', name: 'Kiswahili', flag: '🇹🇿' },
+  { id: 'fr', name: 'Français', flag: '🇫🇷' },
+  { id: 'pt', name: 'Português', flag: '🇵🇹' },
+  { id: 'zh', name: '中文', flag: '🇨🇳' },
+  { id: 'ja', name: '日本語', flag: '🇯🇵' },
+  { id: 'ko', name: '한국어', flag: '🇰🇷' },
+];
+
+export const CURRENCIES = [
+  { id: 'USD', symbol: '$', name: 'US Dollar', rate: 1 },
+  { id: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling', rate: 2500 },
+  { id: 'EUR', symbol: '€', name: 'Euro', rate: 0.92 },
+  { id: 'CNY', symbol: '¥', name: 'Chinese Yuan', rate: 7.23 },
+  { id: 'JPY', symbol: '¥', name: 'Japanese Yen', rate: 151.41 },
+  { id: 'KRW', symbol: '₩', name: 'South Korean Won', rate: 1350 },
+];
+
+export const translations: Record<string, any> = {
+  en: {
+    dashboard: 'Dashboard',
+    inventory: 'Inventory',
+    transactions: 'Transactions',
+    reports: 'Reports',
+    revenue: 'Total Revenue',
+    profit: 'Total Profit',
+    lowStock: 'Low Stock Items',
+    salesCount: 'Sales Count',
+    settings: 'Settings',
+    logout: 'End Session',
+    rules: 'Shop Rules',
+    discount: 'Discount',
+    staff: 'Staff Management'
+  },
+  sw: {
+    dashboard: 'Dashibodi',
+    inventory: 'Stoki',
+    transactions: 'Miamala',
+    reports: 'Ripoti',
+    revenue: 'Mapato Jumla',
+    profit: 'Faida Jumla',
+    lowStock: 'Bidhaa Chache',
+    salesCount: 'Idadi ya Mauzo',
+    settings: 'Mipangilio',
+    logout: 'Ondoka',
+    rules: 'Sheria za Duka',
+    discount: 'Punguzo',
+    staff: 'Usimamizi wa Wafanyakazi'
+  },
+  fr: {
+    dashboard: 'Tableau de bord',
+    inventory: 'Inventaire',
+    transactions: 'Transactions',
+    reports: 'Rapports',
+    revenue: 'Revenu Total',
+    profit: 'Bénéfice Total',
+    lowStock: 'Articles en rupture',
+    salesCount: 'Nombre de ventes',
+    settings: 'Paramètres',
+    logout: 'Déconnexion',
+    rules: 'Règles du Magasin',
+    discount: 'Remise',
+    staff: 'Gestion du personnel'
+  },
+  pt: {
+    dashboard: 'Painel',
+    inventory: 'Inventário',
+    transactions: 'Transações',
+    reports: 'Relatórios',
+    revenue: 'Receita Total',
+    profit: 'Lucro Total',
+    lowStock: 'Stock Baixo',
+    salesCount: 'Contagem de Vendas',
+    settings: 'Configurações',
+    logout: 'Sair',
+    rules: 'Regras da Loja',
+    discount: 'Desconto',
+    staff: 'Gestão de Pessoal'
+  },
+  zh: {
+    dashboard: '仪表板',
+    inventory: '库存管理',
+    transactions: '交易记录',
+    reports: '财务报表',
+    revenue: '总收入',
+    profit: '总利润',
+    lowStock: '低库存项目',
+    salesCount: '销售次数',
+    settings: '设置',
+    logout: '退出登录',
+    rules: '店铺规则',
+    discount: '折扣',
+    staff: '员工管理'
+  },
+  ja: {
+    dashboard: 'ダッシュボード',
+    inventory: '在庫管理',
+    transactions: '取引履歴',
+    reports: 'レポート',
+    revenue: '总売上',
+    profit: '总利益',
+    lowStock: '在庫不足',
+    salesCount: '販売数',
+    settings: '設定',
+    logout: 'ログアウト',
+    rules: '店則',
+    discount: '割引',
+    staff: 'スタッフ管理'
+  },
+  ko: {
+    dashboard: '대시보드',
+    inventory: '재고 관리',
+    transactions: '거래 내역',
+    reports: '보고서',
+    revenue: '총 매출',
+    profit: '총 이익',
+    lowStock: '재고 부족 품목',
+    salesCount: '판매 건수',
+    settings: '설정',
+    logout: '로그아웃',
+    rules: '상점 규칙',
+    discount: '할인',
+    staff: '직원 관리'
+  }
+};

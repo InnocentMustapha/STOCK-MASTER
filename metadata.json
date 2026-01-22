@@ -1,0 +1,8 @@
+
+{
+  "name": "STOCK MASTER",
+  "description": "A comprehensive stock management system for shop owners and sellers, featuring AI-powered inventory insights, profit/loss tracking, and real-time sales monitoring.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

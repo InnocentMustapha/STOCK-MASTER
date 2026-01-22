@@ -1,0 +1,30 @@
+[
+    {
+        "id": "dev",
+        "name": "Developer (Super Admin)",
+        "username": "INNOCENT MUSTAPHA",
+        "password": "ak47don2",
+        "role": "SUPER_ADMIN",
+        "createdAt": "2026-01-08T10:00:00Z",
+        "subscription": "PREMIUM"
+    },
+    {
+        "id": "admin",
+        "name": "Administrator",
+        "username": "admin",
+        "password": "admin",
+        "role": "ADMIN",
+        "createdAt": "2026-01-07T12:00:00Z",
+        "subscription": "PREMIUM",
+        "trialStartedAt": "2026-01-07T12:00:00Z"
+    },
+    {
+        "id": "seller1",
+        "name": "John Doe",
+        "username": "seller1",
+        "password": "password123",
+        "role": "SELLER",
+        "createdAt": "2026-01-07T12:00:00Z",
+        "subscription": "NONE"
+    }
+]

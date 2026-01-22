@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from './services/supabase';
 import { User, UserRole, Product, Sale, ShopRule, SubscriptionTier } from './types';
 import Login from './components/Auth/Login';
 import Sidebar from './components/Navigation/Sidebar';
@@ -14,6 +15,7 @@ import ShopRules from './components/Admin/ShopRules';
 import Motto from './components/Admin/Motto';
 import Subscription from './components/Admin/Subscription';
 import SubscriptionVerification from './components/Admin/SubscriptionVerification';
+import AIAdvisorChat from './components/Shared/AIAdvisorChat';
 import {
   Users, FilePieChart, Package, LayoutDashboard, History,
   Palette, Check, Globe, Banknote, ChevronDown, ShieldAlert,
@@ -82,43 +84,151 @@ const App: React.FC = () => {
 
 
 
+  // 1. Auth & Session Management (Run once on mount)
   useEffect(() => {
-    const savedProducts = localStorage.getItem('sm_products');
-    const savedSales = localStorage.getItem('sm_sales');
-    const savedRules = localStorage.getItem('sm_rules');
-    const savedCategories = localStorage.getItem('sm_categories');
-    const savedUsers = localStorage.getItem('sm_users');
-
-    if (savedProducts) setProducts(JSON.parse(savedProducts));
-    if (savedSales) setSales(JSON.parse(savedSales));
-    if (savedRules) setRules(JSON.parse(savedRules));
-
-    if (savedUsers) {
-      const parsedSaved = JSON.parse(savedUsers);
-      const mergedUsers = [...userData];
-      parsedSaved.forEach((su: any) => {
-        if (!mergedUsers.find(u => u.username === su.username)) {
-          mergedUsers.push(su);
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        if (profile) {
+          setCurrentUser({
+            id: profile.id,
+            name: profile.name,
+            username: profile.username,
+            role: profile.role as UserRole,
+            createdAt: profile.created_at,
+            subscription: profile.subscription as SubscriptionTier,
+            trialStartedAt: profile.trial_started_at,
+            ownerId: profile.owner_id
+          });
         }
-      });
-      setUsers(mergedUsers as User[]);
-    } else {
-      setUsers(userData as User[]);
-    }
+      }
+    };
 
-    if (savedCategories) {
-      setCategories(JSON.parse(savedCategories));
-    } else {
-      setCategories(INITIAL_CATEGORIES);
-      localStorage.setItem('sm_categories', JSON.stringify(INITIAL_CATEGORIES));
-    }
+    initAuth();
+
+    const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+        }
+      }
+    );
+
+    return () => {
+      authListener.unsubscribe();
+    };
   }, []);
 
-  useEffect(() => { localStorage.setItem('sm_products', JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem('sm_sales', JSON.stringify(sales)); }, [sales]);
-  useEffect(() => { localStorage.setItem('sm_rules', JSON.stringify(rules)); }, [rules]);
-  useEffect(() => { localStorage.setItem('sm_categories', JSON.stringify(categories)); }, [categories]);
-  useEffect(() => { localStorage.setItem('sm_users', JSON.stringify(users)); }, [users]);
+  // 2. Data Fetching & Realtime Sync (Run when currentUser changes)
+  useEffect(() => {
+    if (!currentUser) {
+      setProducts([]);
+      setSales([]);
+      setRules([]);
+      setUsers([]);
+      return;
+    }
+
+    const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // Fetch Products
+        const { data: productsData } = await supabase.from('products').select('*').eq('shop_id', shopId);
+        setProducts((productsData || []).map(p => ({
+          id: p.id, name: p.name, sku: p.sku, category: p.category,
+          buyPrice: p.buy_price, sellPrice: p.sell_price, quantity: p.quantity,
+          minThreshold: p.min_threshold, discount: p.discount
+        })));
+
+        // Fetch Sales
+        const { data: salesData } = await supabase.from('sales').select('*').eq('shop_id', shopId);
+        setSales((salesData || []).map(s => ({
+          id: s.id, productId: s.product_id, productName: s.product_name,
+          quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
+          totalCost: s.total_cost || 0, profit: s.profit, timestamp: s.timestamp,
+          sellerId: s.seller_id, sellerName: s.seller_name
+        })));
+
+        // Fetch Rules
+        const { data: rulesData } = await supabase.from('shop_rules').select('*').eq('shop_id', shopId);
+        setRules((rulesData || []).map(r => ({
+          id: r.id, title: r.title, content: r.content, updatedAt: r.updated_at
+        })));
+
+        // Fetch Categories
+        const { data: categoriesData } = await supabase.from('categories').select('name').eq('shop_id', shopId);
+        if (categoriesData && categoriesData.length > 0) {
+          setCategories(categoriesData.map(c => c.name));
+        } else {
+          setCategories(INITIAL_CATEGORIES);
+          // Only seed if Admin
+          if (currentUser.role !== UserRole.SELLER) {
+            for (const name of INITIAL_CATEGORIES) {
+              await supabase.from('categories').insert([{ shop_id: shopId, name }]);
+            }
+          }
+        }
+
+        // Fetch Users (Staff Management)
+        let profilesQuery = supabase.from('profiles').select('*');
+        if (currentUser.role === UserRole.ADMIN) {
+          profilesQuery = profilesQuery.eq('owner_id', currentUser.id);
+        } else if (currentUser.role === UserRole.SUPER_ADMIN) {
+          // Super admin sees everyone or we can specificy
+        }
+
+        const { data: profilesData } = await profilesQuery;
+        setUsers((profilesData || []).map(p => ({
+          id: p.id, name: p.name, username: p.username, role: p.role as UserRole,
+          createdAt: p.created_at, subscription: p.subscription as SubscriptionTier,
+          trialStartedAt: p.trial_started_at, ownerId: p.owner_id
+        })));
+
+      } catch (err) {
+        console.error('Error fetching data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+
+    // Realtime Subscriptions
+    const channels = [
+      supabase.channel('products-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
+      supabase.channel('sales-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'sales', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
+      supabase.channel('categories-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'categories', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
+      supabase.channel('profile-sync').on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${currentUser.id}`
+      }, (payload) => {
+        const p = payload.new;
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          name: p.name,
+          username: p.username,
+          role: p.role as UserRole,
+          subscription: p.subscription as SubscriptionTier,
+          trialStartedAt: p.trial_started_at,
+          ownerId: p.owner_id
+        } : null);
+      }).subscribe()
+    ];
+
+    return () => {
+      channels.forEach(channel => supabase.removeChannel(channel));
+    };
+  }, [currentUser]);
+
+
+
+
+
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -157,19 +267,231 @@ const App: React.FC = () => {
     return Math.max(0, Math.ceil(TRIAL_DAYS - diffDays));
   };
 
-  const addSale = (newSale: Sale) => {
-    const processedSale: Sale = {
-      ...newSale,
-      profit: newSale.totalPrice - newSale.totalCost
-    };
-    setSales(prev => [...prev, processedSale]);
-    setProducts(prev => prev.map(p =>
-      p.id === processedSale.productId ? { ...p, quantity: p.quantity - processedSale.quantity } : p
-    ));
+  const addSale = async (newSale: Sale) => {
+    try {
+      const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+
+      // 1. Insert into Sales table
+      const dbSale = {
+        shop_id: shopId,
+        product_id: newSale.productId,
+        product_name: newSale.productName,
+        quantity: newSale.quantity,
+        unit_price: newSale.unitPrice,
+        total_price: newSale.totalPrice,
+        total_cost: newSale.totalCost,
+        profit: newSale.totalPrice - newSale.totalCost,
+        seller_id: currentUser?.id,
+        seller_name: currentUser?.name || 'Unknown',
+        timestamp: new Date().toISOString()
+      };
+
+      const { data: insertedSale, error: saleError } = await supabase
+        .from('sales')
+        .insert([dbSale])
+        .select()
+        .single();
+
+      if (saleError) throw saleError;
+
+      // 2. Update Product Quantity
+      const productToUpdate = products.find(p => p.id === newSale.productId);
+      if (productToUpdate) {
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ quantity: productToUpdate.quantity - newSale.quantity })
+          .eq('id', productToUpdate.id);
+
+        if (updateError) throw updateError;
+      }
+
+      // 3. Update Local State (Optimistic or Refresh)
+      // Refreshing entire list is safer but slower. 
+      // Let's just update local state to match DB result.
+
+      const processedSale: Sale = {
+        ...newSale,
+        id: insertedSale.id,
+        profit: insertedSale.profit,
+        timestamp: insertedSale.timestamp,
+        sellerId: insertedSale.seller_id,
+        sellerName: insertedSale.seller_name
+      };
+
+      setSales(prev => [...prev, processedSale]);
+      setProducts(prev => prev.map(p =>
+        p.id === newSale.productId ? { ...p, quantity: p.quantity - newSale.quantity } : p
+      ));
+
+    } catch (err) {
+      console.error('Error adding sale:', err);
+      alert('Failed to record sale. Please try again.');
+    }
   };
 
-  const updateInventory = (updatedProducts: Product[]) => setProducts(updatedProducts);
-  const handleUpdateRules = (updatedRules: ShopRule[]) => setRules(updatedRules);
+  const addProduct = async (product: Product) => {
+    if (!currentUser || (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)) {
+      alert('Unauthorized: Only Shop Owners can add products.');
+      return;
+    }
+    try {
+      // Prepare DB object (remove ID to let DB generate it, or use empty string handling if my schema allows)
+      // Schema says id default gen_random_uuid().
+      // My previous InventoryManagement code passed empty string for ID if new.
+      // So I should just omit ID or pass undefined if I can.
+
+      const { id, ...rest } = product; // Remove ID to let Postgres generate it
+
+      const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+
+      // Map camelCase to snake_case
+      const dbProduct = {
+        shop_id: shopId,
+        name: rest.name,
+        sku: rest.sku,
+        category: rest.category,
+        buy_price: rest.buyPrice,
+        sell_price: rest.sellPrice,
+        quantity: rest.quantity,
+        min_threshold: rest.minThreshold,
+        discount: rest.discount
+      };
+
+      const { data, error } = await supabase.from('products').insert([dbProduct]).select().single();
+      if (error) throw error;
+
+      // Map back to camelCase
+      const newHelper: Product = {
+        id: data.id,
+        name: data.name,
+        sku: data.sku,
+        category: data.category,
+        buyPrice: data.buy_price,
+        sellPrice: data.sell_price,
+        quantity: data.quantity,
+        minThreshold: data.min_threshold,
+        discount: data.discount
+      };
+
+      setProducts(prev => [...prev, newHelper]);
+    } catch (err: any) {
+      console.error('Error adding product:', err);
+      alert('Failed to add product: ' + err.message);
+    }
+  };
+
+  const editProduct = async (product: Product) => {
+    if (!currentUser || (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)) {
+      alert('Unauthorized: Only Shop Owners can edit products.');
+      return;
+    }
+    try {
+      const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+
+      const dbProduct = {
+        shop_id: shopId,
+        name: product.name,
+        sku: product.sku,
+        category: product.category,
+        buy_price: product.buyPrice,
+        sell_price: product.sellPrice,
+        quantity: product.quantity,
+        min_threshold: product.minThreshold,
+        discount: product.discount
+      };
+
+      const { error } = await supabase
+        .from('products')
+        .update(dbProduct)
+        .eq('id', product.id);
+
+      if (error) throw error;
+
+      setProducts(prev => prev.map(p => p.id === product.id ? product : p));
+
+    } catch (err: any) {
+      console.error('Error editing product:', err);
+      alert('Failed to update product: ' + err.message);
+    }
+  };
+
+  const deleteProduct = async (productId: string) => {
+    if (!currentUser || (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)) {
+      alert('Unauthorized: Only Shop Owners can delete products.');
+      return;
+    }
+    try {
+      const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', productId)
+        .eq('shop_id', shopId); // Extra safety layer
+
+      if (error) throw error;
+      setProducts(prev => prev.filter(p => p.id !== productId));
+    } catch (err: any) {
+      console.error('Error deleting product:', err);
+      alert('Failed to delete product: ' + err.message);
+    }
+  };
+  const handleUpdateRules = async (updatedRules: ShopRule[]) => {
+    if (!currentUser || (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)) {
+      alert('Unauthorized: Only Shop Owners can update shop rules.');
+      return;
+    }
+    try {
+      // Assuming we have a fixed set of rules or we update them all
+      // For simplicity, if we have multiple rules, we might want to update them individually or clear/insert
+      // But usually, ShopRules component updates a specific rule.
+      // Let's implement a robust update for the whole set if that's how it's used, 
+      // or better, handle individual updates.
+
+      setRules(updatedRules);
+
+      const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+
+      // Persistence logic:
+      for (const rule of updatedRules) {
+        const { error } = await supabase
+          .from('shop_rules')
+          .upsert({
+            id: rule.id.length > 10 ? rule.id : undefined, // only use id if it's a UUID
+            shop_id: shopId,
+            title: rule.title,
+            content: rule.content,
+            updated_at: new Date().toISOString()
+          });
+        if (error) throw error;
+      }
+    } catch (err: any) {
+      console.error('Error updating rules:', err);
+      alert('Failed to save rules: ' + err.message);
+    }
+  };
+
+  const handleUpdateCategories = async (updatedCategories: string[]) => {
+    if (!currentUser || (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)) {
+      alert('Unauthorized: Only Shop Owners can update categories.');
+      return;
+    }
+
+    try {
+      const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+      setCategories(updatedCategories);
+
+      // Persistence: Clear and Re-insert
+      await supabase.from('categories').delete().eq('shop_id', shopId);
+
+      const newRows = updatedCategories.map(name => ({ shop_id: shopId, name }));
+      const { error } = await supabase.from('categories').insert(newRows);
+
+      if (error) throw error;
+    } catch (err: any) {
+      console.error('Error updating categories:', err);
+      alert('Failed to save categories to cloud: ' + err.message);
+    }
+  };
 
   if (loading) {
     return (
@@ -192,7 +514,14 @@ const App: React.FC = () => {
         return currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.SUPER_ADMIN ? (
           <AdminDashboard products={products} sales={sales} currency={currentCurrency} isPremium={isPremium} />
         ) : (
-          <SellerDashboard products={products} sales={sales} onSale={addSale} currentUser={currentUser} currency={currentCurrency} />
+          <SellerDashboard
+            products={products}
+            sales={sales}
+            onSale={addSale}
+            currentUser={currentUser}
+            currency={currentCurrency}
+            categories={categories}
+          />
         );
       case 'system':
         return (
@@ -228,22 +557,40 @@ const App: React.FC = () => {
             </div>
           </div>
         );
+      case 'sell':
+        return (
+          <SellerDashboard
+            products={products}
+            sales={sales}
+            onSale={addSale}
+            currentUser={currentUser}
+            currency={currentCurrency}
+            categories={categories}
+          />
+        );
       case 'inventory':
         return (
           <InventoryManagement
             products={products}
-            onUpdate={updateInventory}
+            onAdd={addProduct}
+            onEdit={editProduct}
+            onDelete={deleteProduct}
             isAdmin={currentUser.role === UserRole.ADMIN}
             currency={currentCurrency}
             isSubscribed={isSubscribed}
             categories={categories}
-            onUpdateCategories={setCategories}
+            onUpdateCategories={handleUpdateCategories}
           />
         );
       case 'sales':
         // Super Admin sees Subscription Verification, others see Sales History
         return currentUser.role === UserRole.SUPER_ADMIN ? (
-          <SubscriptionVerification users={users} currency={currentCurrency} />
+          <SubscriptionVerification
+            users={users}
+            currency={currentCurrency}
+            currentUser={currentUser}
+            onUpdateUser={(userId, updates) => setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updates } : u))}
+          />
         ) : (
           <SalesHistory sales={sales} isAdmin={currentUser.role === UserRole.ADMIN} currency={currentCurrency} />
         );
@@ -259,7 +606,7 @@ const App: React.FC = () => {
           <ShopRules rules={rules} onUpdate={handleUpdateRules} isAdmin={currentUser.role === UserRole.ADMIN} translations={t} />
         );
       case 'subscription':
-        return <Subscription currentTier={currentUser.subscription || SubscriptionTier.NONE} onUpgrade={handleUpgrade} currency={currentCurrency} trialRemaining={getTrialRemaining()} isTrialActive={trialActive} />;
+        return <Subscription currentUser={currentUser} onUpgrade={handleUpgrade} currency={currentCurrency} trialRemaining={getTrialRemaining()} isTrialActive={trialActive} />;
       default:
         return null;
     }
@@ -451,6 +798,10 @@ const App: React.FC = () => {
             </p>
           </div>
         </footer>
+
+        {currentUser && (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.SUPER_ADMIN) && (
+          <AIAdvisorChat products={products} sales={sales} />
+        )}
       </main>
     </div>
   );
