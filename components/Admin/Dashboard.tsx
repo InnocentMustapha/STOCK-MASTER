@@ -222,11 +222,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* ... StatCards ... */}
         <StatCard
-          title="Investment Growth"
-          value={initialCapital > 0 ? `${capitalStats.growth >= 0 ? '+' : ''}${capitalStats.growth.toFixed(1)}%` : 'N/A'}
+          title="Current Valuation"
+          value={formatPrice(capitalStats.current)}
           icon={<Wallet className="text-purple-600" />}
           color="bg-purple-50"
-          trend={initialCapital > 0 ? `Initial: ${formatPrice(initialCapital)}` : "Set Initial Capital"}
+          trend={initialCapital > 0 ? `${capitalStats.growth >= 0 ? '+' : ''}${capitalStats.growth.toFixed(1)}% Growth` : "Set Initial Capital"}
         />
         <StatCard
           title="Today's Revenue"

@@ -22,6 +22,7 @@ import {
   Palette, Check, Globe, Banknote, ChevronDown, ShieldAlert,
   Mail, MessageCircle, Menu, X, Timer
 } from 'lucide-react';
+import Purchases from './components/Admin/Purchases'; // Import Purchases
 import { LANGUAGES, CURRENCIES, translations } from './locales';
 import { INITIAL_CATEGORIES } from './constants';
 import userData from './user-data.json';
@@ -183,7 +184,6 @@ const App: React.FC = () => {
           shop_id: r.shop_id,
           date: r.date,
           opening_balance: r.opening_balance,
-          stock_purchases: r.stock_purchases,
           stock_purchases: r.stock_purchases,
           other_expenses: r.other_expenses
         })));
@@ -523,6 +523,36 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAddPurchase = async (purchaseData: any) => {
+    if (!currentUser) return;
+    try {
+      const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+
+      // 1. Log Expense
+      const { error: expenseError } = await supabase.from('expense_logs').insert([{
+        ...purchaseData,
+        shop_id: shopId
+      }]);
+      if (expenseError) throw expenseError;
+
+      // 2. Update Product Quantity
+      const { productId, quantity } = purchaseData.metadata;
+      const product = products.find(p => p.id === productId);
+      if (product) {
+        const { error: prodError } = await supabase.from('products')
+          .update({ quantity: product.quantity + quantity })
+          .eq('id', productId);
+
+        if (prodError) throw prodError;
+
+        // Optimistic update not strictly needed due to realtime, but good for UX responsiveness if realtime is slow
+      }
+    } catch (err: any) {
+      console.error('Error recording purchase:', err);
+      alert('Failed to record purchase: ' + err.message);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -551,7 +581,10 @@ const App: React.FC = () => {
             initialCapital={currentUser.initialCapital || 0}
             onUpdateRecord={async (record) => {
               const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
-              const { error } = await supabase.from('daily_records').upsert({ ...record, shop_id: shopId });
+              const { error } = await supabase.from('daily_records').upsert(
+                { ...record, shop_id: shopId },
+                { onConflict: 'shop_id,date' }
+              );
               if (error) alert('Error updating record: ' + error.message);
             }}
             onLogExpense={async (log) => {
@@ -674,6 +707,15 @@ const App: React.FC = () => {
           <Motto />
         ) : (
           <ShopRules rules={rules} onUpdate={handleUpdateRules} isAdmin={currentUser.role === UserRole.ADMIN} translations={t} />
+        );
+      case 'purchases':
+        return (
+          <Purchases
+            expenses={expenses}
+            products={products}
+            currency={currentCurrency}
+            onAddPurchase={handleAddPurchase}
+          />
         );
       case 'subscription':
         return <Subscription currentUser={currentUser} onUpgrade={handleUpgrade} currency={currentCurrency} trialRemaining={getTrialRemaining()} isTrialActive={trialActive} />;

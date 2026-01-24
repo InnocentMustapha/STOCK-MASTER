@@ -49,9 +49,17 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
         const purchaseImpact = currentRecord.stock_purchases; // Negative impact (money out for stock)
 
         const netProfit = totalSalesRevenue - (daySales.reduce((sum, s) => sum + (s.totalCost || 0), 0)) - currentRecord.other_expenses;
-        const closingBalance = currentRecord.opening_balance + totalSalesRevenue - currentRecord.stock_purchases - currentRecord.other_expenses;
 
-        // ROI Calculation based on current value vs initial check
+        // Closing Balance for the day (Cash Flow)
+        // Opening balance removed as requested
+        const closingBalance = totalSalesRevenue - currentRecord.stock_purchases - currentRecord.other_expenses;
+
+        // ROI Calculation 
+        // Note: comparing Today's closing balance vs Initial might not be logically perfect for "Growth" if independent days, 
+        // but as per request we just remove opening balance. 
+        // If they want "Growth", usually it's (Current Value - Initial) / Initial.
+        // If Closing Balance represents Current Value (Cash held), then this works for that day's perspective.
+
         const capitalGrowth = initialCapital > 0 ? ((closingBalance - initialCapital) / initialCapital) * 100 : 0;
         const growthAmount = closingBalance - initialCapital;
 
@@ -107,7 +115,6 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
             startY: 45,
             head: [['Metric', 'Amount']],
             body: [
-                ['Opening Balance', `${currency.symbol} ${dailyStats.record.opening_balance.toLocaleString()}`],
                 ['(+) Sales Revenue', `${currency.symbol} ${dailyStats.salesRevenue.toLocaleString()}`],
                 ['(-) Stock Purchases', `${currency.symbol} ${dailyStats.record.stock_purchases.toLocaleString()}`],
                 ['(-) Other Expenses', `${currency.symbol} ${dailyStats.record.other_expenses.toLocaleString()}`],
@@ -251,17 +258,6 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                         <DollarSign size={18} />
                         <span>Daily Financial Inputs</span>
                         <span className="text-xs font-normal text-slate-400 ml-2">(Enter amounts for today)</span>
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-bold text-slate-400 uppercase">Opening Balance</label>
-                        <input
-                            type="number"
-                            placeholder={dailyStats.record.opening_balance.toString()}
-                            value={openingBalance}
-                            onChange={(e) => setOpeningBalance(e.target.value)}
-                            className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                        />
                     </div>
 
                     <div>

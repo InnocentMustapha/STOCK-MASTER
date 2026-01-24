@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   subscription_expiry TIMESTAMP WITH TIME ZONE,
   trial_started_at TIMESTAMP WITH TIME ZONE,
   owner_id UUID REFERENCES public.profiles(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  initial_capital NUMERIC DEFAULT 0
 );
 
 -- Function to check if a user is an admin without recursion
@@ -31,7 +32,7 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles 
 FOR SELECT USING (true);
 
--- Users can only insert their own profile during signup
+-- Users can insert their own profile during signup
 CREATE POLICY "Users can insert their own profile" ON public.profiles 
 FOR INSERT WITH CHECK (auth.uid() = id);
 
@@ -151,9 +152,60 @@ CREATE POLICY "Admins can manage categories for their shop" ON public.categories
 ) WITH CHECK (
   shop_id = auth.uid() AND public.is_admin()
 );
+
+-- 6. Daily Records Table
+CREATE TABLE IF NOT EXISTS public.daily_records (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  shop_id UUID REFERENCES public.profiles(id) NOT NULL,
+  date DATE NOT NULL,
+  opening_balance NUMERIC DEFAULT 0,
+  stock_purchases NUMERIC DEFAULT 0,
+  other_expenses NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(shop_id, date)
+);
+
+ALTER TABLE public.daily_records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can see daily records for their shop" ON public.daily_records FOR SELECT USING (
+  shop_id IN (
+    SELECT id FROM public.profiles WHERE id = auth.uid() OR owner_id = auth.uid()
+  )
+);
+CREATE POLICY "Admins can manage daily records for their shop" ON public.daily_records FOR ALL USING (
+  shop_id = auth.uid() AND public.is_admin()
+) WITH CHECK (
+  shop_id = auth.uid() AND public.is_admin()
+);
+
+-- 7. Expense Logs Table
+CREATE TABLE IF NOT EXISTS public.expense_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  shop_id UUID REFERENCES public.profiles(id) NOT NULL,
+  date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  category TEXT,
+  amount NUMERIC DEFAULT 0,
+  description TEXT,
+  metadata JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.expense_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can see expense logs for their shop" ON public.expense_logs FOR SELECT USING (
+  shop_id IN (
+    SELECT id FROM public.profiles WHERE id = auth.uid() OR owner_id = auth.uid()
+  )
+);
+CREATE POLICY "Admins can manage expense logs for their shop" ON public.expense_logs FOR ALL USING (
+  shop_id = auth.uid() AND public.is_admin()
+) WITH CHECK (
+  shop_id = auth.uid() AND public.is_admin()
+);
+
 -- Enable Realtime for all core tables
 ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.products;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.sales;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.shop_rules;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.categories;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.daily_records;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.expense_logs;
