@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, Sale, InventoryInsight } from '../../types';
+import { Product, Sale, InventoryInsight, DailyRecord } from '../../types';
 import { getInventoryInsights } from '../../services/geminiService';
 import { formatCurrency } from '../../services/currencyUtils';
 import {
@@ -13,7 +13,12 @@ import {
   RefreshCcw,
   ArrowUpRight,
   ArrowDownRight,
-  Lock
+  Lock,
+  Wallet,
+  Plus,
+  Minus,
+  X,
+  Save // Added Save icon
 } from 'lucide-react';
 import {
   BarChart,
@@ -33,9 +38,13 @@ interface AdminDashboardProps {
   sales: Sale[];
   currency: any;
   isPremium: boolean;
+  dailyRecords: DailyRecord[];
+  initialCapital: number;
+  onUpdateRecord: (record: DailyRecord) => Promise<void>;
+  onLogExpense?: (log: any) => Promise<void>;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, isPremium }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense }) => {
   const [insight, setInsight] = useState<InventoryInsight | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
 
@@ -69,6 +78,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
     return { totalSales, profit, lowStockCount, chartData, todaysSalesCount: todaysSales.length };
   }, [sales, products]);
 
+  const capitalStats = useMemo(() => {
+    if (initialCapital === 0) return { current: 0, growth: 0 };
+
+    // Find latest record or use today
+    const sorted = [...dailyRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const latestInfo = sorted[0];
+
+    if (!latestInfo) return { current: 0, growth: 0 };
+
+    // Calculate latest day's closing balance
+    const daySales = sales.filter(s => s.timestamp.startsWith(latestInfo.date));
+    const revenue = daySales.reduce((acc, s) => acc + s.totalPrice, 0);
+
+    const currentCapital = latestInfo.opening_balance + revenue - latestInfo.stock_purchases - latestInfo.other_expenses;
+    const growth = ((currentCapital - initialCapital) / initialCapital) * 100;
+
+    return { current: currentCapital, growth };
+  }, [dailyRecords, sales, initialCapital]);
+
   const fetchInsights = async () => {
     if (!isPremium) return;
     setLoadingInsight(true);
@@ -85,9 +113,121 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
     return formatCurrency(val, currency);
   };
 
+
+
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseType, setExpenseType] = useState<'stock' | 'other'>('stock');
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+
+  // Stock Fields
+  const [stockName, setStockName] = useState('');
+  const [stockPrice, setStockPrice] = useState('');
+  const [stockQty, setStockQty] = useState('');
+
+  // Other Expense Fields
+  const [expenseCategory, setExpenseCategory] = useState('TRANSPORT');
+  const [expenseReason, setExpenseReason] = useState('');
+  const [expenseCost, setExpenseCost] = useState('');
+
+  const handleQuickExpense = async () => {
+    setIsSubmittingExpense(true);
+
+    try {
+      const todayShort = new Date().toISOString().split('T')[0];
+      const currentRecord = dailyRecords.find(r => r.date === todayShort) || {
+        date: todayShort,
+        opening_balance: 0,
+        stock_purchases: 0,
+        other_expenses: 0
+      };
+
+      let amount = 0;
+      let description = '';
+      let metadata = {};
+      let category = '';
+
+      if (expenseType === 'stock') {
+        const price = Number(stockPrice);
+        const qty = Number(stockQty);
+        if (!stockName || isNaN(price) || isNaN(qty) || price <= 0 || qty <= 0) {
+          alert('Please enter valid stock details');
+          setIsSubmittingExpense(false);
+          return;
+        }
+        amount = price * qty;
+        description = stockName;
+        category = 'STOCK';
+        metadata = { price, quantity: qty };
+      } else {
+        amount = Number(expenseCost);
+        if (isNaN(amount) || amount <= 0) {
+          alert('Please enter a valid amount');
+          setIsSubmittingExpense(false);
+          return;
+        }
+        category = expenseCategory;
+        description = expenseCategory === 'OTHER' ? expenseReason : expenseCategory;
+        if (expenseCategory === 'OTHER' && !expenseReason) {
+          alert('Please specify the reason');
+          setIsSubmittingExpense(false);
+          return;
+        }
+        metadata = { reason: expenseReason };
+      }
+
+      // 1. Update Financial Record (Impacts ROI/Charts)
+      const updatedRecord = {
+        ...currentRecord,
+        stock_purchases: expenseType === 'stock'
+          ? (currentRecord.stock_purchases || 0) + amount
+          : (currentRecord.stock_purchases || 0),
+        other_expenses: expenseType === 'other'
+          ? (currentRecord.other_expenses || 0) + amount
+          : (currentRecord.other_expenses || 0)
+      };
+
+      await onUpdateRecord(updatedRecord as DailyRecord);
+
+      // 2. Log Detailed Expense (Propagated to Parent)
+      if (onLogExpense) {
+        await onLogExpense({
+          date: todayShort,
+          category,
+          amount,
+          description,
+          metadata
+        });
+      }
+
+      // Reset
+      setShowExpenseModal(false);
+      setStockName('');
+      setStockPrice('');
+      setStockQty('');
+      setExpenseReason('');
+      setExpenseCost('');
+      setExpenseCategory('TRANSPORT');
+
+      alert('Transaction recorded successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to record transaction.');
+    } finally {
+      setIsSubmittingExpense(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-6 relative">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* ... StatCards ... */}
+        <StatCard
+          title="Investment Growth"
+          value={initialCapital > 0 ? `${capitalStats.growth >= 0 ? '+' : ''}${capitalStats.growth.toFixed(1)}%` : 'N/A'}
+          icon={<Wallet className="text-purple-600" />}
+          color="bg-purple-50"
+          trend={initialCapital > 0 ? `Initial: ${formatPrice(initialCapital)}` : "Set Initial Capital"}
+        />
         <StatCard
           title="Today's Revenue"
           value={formatPrice(stats.totalSales)}
@@ -112,31 +252,55 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
         <StatCard
           title="Today's Sales"
           value={stats.todaysSalesCount.toString()}
-          icon={<ShoppingCart className="text-purple-600" />}
-          color="bg-purple-50"
+          icon={<ShoppingCart className="text-indigo-600" />}
+          color="bg-indigo-50"
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center justify-between">
-            Revenue & Profit Trend
-            <span className="text-xs font-normal text-slate-500">Last 7 Days</span>
-          </h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={stats.chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <Tooltip
-                  formatter={(value: number) => [formatPrice(value), ""]}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                />
-                <Line type="monotone" dataKey="revenue" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, fill: '#2563eb' }} />
-                <Line type="monotone" dataKey="profit" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} />
-              </LineChart>
-            </ResponsiveContainer>
+        <div className="lg:col-span-2 space-y-6">
+          {/* Quick Actions Panel */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Quick Actions</h3>
+              <p className="text-sm text-slate-500">Record daily expenses instantly</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setExpenseType('stock'); setShowExpenseModal(true); }}
+                className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-100 transition-colors"
+              >
+                <Plus size={16} /> Buy Stock
+              </button>
+              <button
+                onClick={() => { setExpenseType('other'); setShowExpenseModal(true); }}
+                className="flex items-center gap-2 bg-slate-50 text-slate-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors"
+              >
+                <Minus size={16} /> Pay Expense
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-80">
+            <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center justify-between">
+              Revenue & Profit Trend
+              <span className="text-xs font-normal text-slate-500">Last 7 Days</span>
+            </h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={stats.chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <Tooltip
+                    formatter={(value: number) => [formatPrice(value), ""]}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                  />
+                  <Line type="monotone" dataKey="revenue" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, fill: '#2563eb' }} />
+                  <Line type="monotone" dataKey="profit" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
 
@@ -213,6 +377,132 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
           </div>
         </div>
       </div>
+
+      {/* Quick Expense Modal */}
+      {/* Quick Expense Modal */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-black text-slate-800">
+                {expenseType === 'stock' ? 'Record Stock Purchase' : 'Record Expense'}
+              </h3>
+              <button
+                onClick={() => setShowExpenseModal(false)}
+                className="p-2 bg-white rounded-full hover:bg-slate-100 transition-colors shadow-sm"
+                disabled={isSubmittingExpense}
+              >
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+
+              {expenseType === 'stock' ? (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase">Product Name</label>
+                    <input
+                      type="text"
+                      value={stockName}
+                      onChange={(e) => setStockName(e.target.value)}
+                      placeholder="e.g. Wireless Mouse"
+                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase">Unit Price</label>
+                      <input
+                        type="number"
+                        value={stockPrice}
+                        onChange={(e) => setStockPrice(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase">Quantity</label>
+                      <input
+                        type="number"
+                        value={stockQty}
+                        onChange={(e) => setStockQty(e.target.value)}
+                        placeholder="0"
+                        className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  {stockPrice && stockQty && (
+                    <div className="p-3 bg-blue-50 rounded-xl flex justify-between items-center text-blue-800 font-bold">
+                      <span>Total Cost:</span>
+                      <span>{currency.symbol} {(Number(stockPrice) * Number(stockQty)).toLocaleString()}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase">Category</label>
+                    <select
+                      value={expenseCategory}
+                      onChange={(e) => setExpenseCategory(e.target.value)}
+                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="TRANSPORT">Transportation</option>
+                      <option value="SALARY">Paying Salary</option>
+                      <option value="LUNCH">Lunch for Workers</option>
+                      <option value="CASUAL">Paying Casual Labor</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+
+                  {expenseCategory === 'OTHER' && (
+                    <div className="animate-in slide-in-from-top-2">
+                      <label className="text-xs font-bold text-slate-400 uppercase">Reason</label>
+                      <input
+                        type="text"
+                        value={expenseReason}
+                        onChange={(e) => setExpenseReason(e.target.value)}
+                        placeholder="Specify reason..."
+                        className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase">Amount</label>
+                    <div className="relative mt-1">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                        {currency.symbol}
+                      </div>
+                      <input
+                        type="number"
+                        value={expenseCost}
+                        onChange={(e) => setExpenseCost(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <p className="text-[10px] text-slate-400 text-center">
+                This transaction will be logged and affect your daily closing balance.
+              </p>
+
+              <button
+                onClick={handleQuickExpense}
+                disabled={isSubmittingExpense}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg shadow-blue-200"
+              >
+                {isSubmittingExpense ? <RefreshCcw size={18} className="animate-spin" /> : <Save size={18} />}
+                {isSubmittingExpense ? 'Recording...' : 'Confirm Transaction'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

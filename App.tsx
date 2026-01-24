@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './services/supabase';
-import { User, UserRole, Product, Sale, ShopRule, SubscriptionTier } from './types';
+import { User, UserRole, Product, Sale, ShopRule, SubscriptionTier, DailyRecord } from './types';
 import Login from './components/Auth/Login';
 import Sidebar from './components/Navigation/Sidebar';
 import AdminDashboard from './components/Admin/Dashboard';
@@ -16,6 +16,7 @@ import Motto from './components/Admin/Motto';
 import Subscription from './components/Admin/Subscription';
 import SubscriptionVerification from './components/Admin/SubscriptionVerification';
 import AIAdvisorChat from './components/Shared/AIAdvisorChat';
+import TransactionPage from './components/Admin/TransactionPage';
 import {
   Users, FilePieChart, Package, LayoutDashboard, History,
   Palette, Check, Globe, Banknote, ChevronDown, ShieldAlert,
@@ -59,6 +60,8 @@ const App: React.FC = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [rules, setRules] = useState<ShopRule[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
 
   const t = translations[lang] || translations.en;
   const currentCurrency = CURRENCIES.find(c => c.id === currency) || CURRENCIES[0];
@@ -99,7 +102,8 @@ const App: React.FC = () => {
             createdAt: profile.created_at,
             subscription: profile.subscription as SubscriptionTier,
             trialStartedAt: profile.trial_started_at,
-            ownerId: profile.owner_id
+            ownerId: profile.owner_id,
+            initialCapital: profile.initial_capital || 0
           });
         }
       }
@@ -172,6 +176,29 @@ const App: React.FC = () => {
           }
         }
 
+        // Fetch Daily Records
+        const { data: recordsData } = await supabase.from('daily_records').select('*').eq('shop_id', shopId);
+        setDailyRecords((recordsData || []).map(r => ({
+          id: r.id,
+          shop_id: r.shop_id,
+          date: r.date,
+          opening_balance: r.opening_balance,
+          stock_purchases: r.stock_purchases,
+          stock_purchases: r.stock_purchases,
+          other_expenses: r.other_expenses
+        })));
+
+        // Fetch Expense Logs
+        const { data: expensesData } = await supabase.from('expense_logs').select('*').eq('shop_id', shopId);
+        setExpenses((expensesData || []).map(e => ({
+          id: e.id,
+          date: e.date,
+          category: e.category,
+          amount: e.amount,
+          description: e.description,
+          metadata: e.metadata
+        })));
+
         // Fetch Users (Staff Management)
         let profilesQuery = supabase.from('profiles').select('*');
         if (currentUser.role === UserRole.ADMIN) {
@@ -201,6 +228,8 @@ const App: React.FC = () => {
       supabase.channel('products-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
       supabase.channel('sales-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'sales', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
       supabase.channel('categories-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'categories', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
+      supabase.channel('daily-records-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'daily_records', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
+      supabase.channel('expenses-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'expense_logs', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
       supabase.channel('profile-sync').on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -215,7 +244,8 @@ const App: React.FC = () => {
           role: p.role as UserRole,
           subscription: p.subscription as SubscriptionTier,
           trialStartedAt: p.trial_started_at,
-          ownerId: p.owner_id
+          ownerId: p.owner_id,
+          initialCapital: p.initial_capital || 0
         } : null);
       }).subscribe()
     ];
@@ -512,7 +542,25 @@ const App: React.FC = () => {
     switch (activeTab) {
       case 'dashboard':
         return currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.SUPER_ADMIN ? (
-          <AdminDashboard products={products} sales={sales} currency={currentCurrency} isPremium={isPremium} />
+          <AdminDashboard
+            products={products}
+            sales={sales}
+            currency={currentCurrency}
+            isPremium={isPremium}
+            dailyRecords={dailyRecords}
+            initialCapital={currentUser.initialCapital || 0}
+            onUpdateRecord={async (record) => {
+              const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+              const { error } = await supabase.from('daily_records').upsert({ ...record, shop_id: shopId });
+              if (error) alert('Error updating record: ' + error.message);
+            }}
+            onLogExpense={async (log) => {
+              const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+              const { error } = await supabase.from('expense_logs').insert({ ...log, shop_id: shopId });
+              if (error) console.error('Error logging expense:', error);
+            }}
+            expenses={expenses}
+          />
         ) : (
           <SellerDashboard
             products={products}
@@ -597,7 +645,29 @@ const App: React.FC = () => {
       case 'users':
         return <UserManagement users={users} onUpdate={setUsers} currentUser={currentUser} translations={t} isSubscribed={isSubscribed} />;
       case 'reports':
-        return <Reports sales={sales} products={products} currency={currentCurrency} isPremium={isPremium} />;
+        return (
+          <TransactionPage
+            sales={sales}
+            products={products}
+            dailyRecords={dailyRecords}
+            onUpdateRecord={async (record) => {
+              const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+              const { error } = await supabase.from('daily_records').upsert({ ...record, shop_id: shopId });
+              if (error) {
+                alert('Error updating record: ' + error.message);
+              }
+            }}
+            currency={currentCurrency}
+            isPremium={isPremium}
+            isAdmin={currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.SUPER_ADMIN}
+            initialCapital={currentUser.initialCapital || 0}
+            onUpdateInitialCapital={async (amount) => {
+              if (!currentUser) return;
+              const { error } = await supabase.from('profiles').update({ initial_capital: amount }).eq('id', currentUser.id);
+              if (error) alert('Failed to update capital: ' + error.message);
+            }}
+          />
+        );
       case 'rules':
         // Super Admin sees Motto, others see Shop Rules
         return currentUser.role === UserRole.SUPER_ADMIN ? (

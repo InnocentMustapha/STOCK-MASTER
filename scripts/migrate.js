@@ -38,8 +38,17 @@ async function migrate() {
         subscription_expiry TIMESTAMP WITH TIME ZONE,
         trial_started_at TIMESTAMP WITH TIME ZONE,
         owner_id UUID REFERENCES public.profiles(id),
+        initial_capital NUMERIC DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
+
+      -- Add initial_capital column if it doesn't exist (for existing tables)
+      DO $$
+      BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='initial_capital') THEN
+              ALTER TABLE public.profiles ADD COLUMN initial_capital NUMERIC DEFAULT 0;
+          END IF;
+      END $$;
 
       -- Enable Row Level Security (RLS) for profiles
       ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -130,6 +139,47 @@ async function migrate() {
       );
 
       -- Create a bucket for storage if needed (optional, skipping for now)
+      -- Create Daily Records table
+      CREATE TABLE IF NOT EXISTS public.daily_records (
+        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        shop_id UUID REFERENCES public.profiles(id),
+        date DATE NOT NULL,
+        opening_balance NUMERIC DEFAULT 0,
+        stock_purchases NUMERIC DEFAULT 0,
+        other_expenses NUMERIC DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE(shop_id, date)
+      );
+
+      ALTER TABLE public.daily_records ENABLE ROW LEVEL SECURITY;
+      
+      DROP POLICY IF EXISTS "Shop Isolation" ON public.daily_records;
+      
+      CREATE POLICY "Shop Isolation" ON public.daily_records FOR ALL 
+      USING (
+        shop_id = auth.uid() OR 
+        shop_id = (SELECT owner_id FROM public.profiles WHERE id = auth.uid())
+      );
+
+      -- Expense Logs table
+      CREATE TABLE IF NOT EXISTS public.expense_logs (
+        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        shop_id UUID REFERENCES public.profiles(id),
+        date DATE NOT NULL,
+        category TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        description TEXT,
+        metadata JSONB, 
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      
+      ALTER TABLE public.expense_logs ENABLE ROW LEVEL SECURITY;
+      DROP POLICY IF EXISTS "Shop Expense Isolation" ON public.expense_logs;
+      CREATE POLICY "Shop Expense Isolation" ON public.expense_logs FOR ALL 
+      USING (
+        shop_id = auth.uid() OR 
+        shop_id = (SELECT owner_id FROM public.profiles WHERE id = auth.uid())
+      );
     `;
 
     console.log('Running migration...');

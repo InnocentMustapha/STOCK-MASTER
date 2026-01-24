@@ -22,6 +22,7 @@ export interface User {
   subscriptionExpiry?: string;
   trialStartedAt?: string; // ISO string of when trial began
   ownerId?: string; // ID of the Admin who owns this worker (for SELLER role)
+  initialCapital?: number;
 }
 
 export interface Product {
@@ -62,4 +63,13 @@ export interface InventoryInsight {
   recommendations: string[];
   businessGrowthAdvice: string[];
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+export interface DailyRecord {
+  id?: string;
+  shop_id?: string;
+  date: string; // YYYY-MM-DD
+  opening_balance: number;
+  stock_purchases: number;
+  other_expenses: number;
 }
