@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Sale, InventoryInsight, DailyRecord } from '../../types';
 import { getInventoryInsights } from '../../services/geminiService';
 import { formatCurrency } from '../../services/currencyUtils';
+import CurrencyConverter from '../Shared/CurrencyConverter'; // Imported
 import {
   TrendingUp,
   TrendingDown,
@@ -16,8 +17,8 @@ import {
   Lock,
   Wallet,
   Plus,
-  Minus,
   X,
+  Package, // Added Package
   Save // Added Save icon
 } from 'lucide-react';
 import {
@@ -37,6 +38,7 @@ interface AdminDashboardProps {
   products: Product[];
   sales: Sale[];
   currency: any;
+  currencies: any[]; // Added currencies prop
   isPremium: boolean;
   dailyRecords: DailyRecord[];
   initialCapital: number;
@@ -44,7 +46,7 @@ interface AdminDashboardProps {
   onLogExpense?: (log: any) => Promise<void>;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, currencies, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense }) => {
   const [insight, setInsight] = useState<InventoryInsight | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
 
@@ -115,118 +117,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
 
 
 
-  const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [expenseType, setExpenseType] = useState<'stock' | 'other'>('stock');
-  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
 
-  // Stock Fields
-  const [stockName, setStockName] = useState('');
-  const [stockPrice, setStockPrice] = useState('');
-  const [stockQty, setStockQty] = useState('');
-
-  // Other Expense Fields
-  const [expenseCategory, setExpenseCategory] = useState('TRANSPORT');
-  const [expenseReason, setExpenseReason] = useState('');
-  const [expenseCost, setExpenseCost] = useState('');
-
-  const handleQuickExpense = async () => {
-    setIsSubmittingExpense(true);
-
-    try {
-      const todayShort = new Date().toISOString().split('T')[0];
-      const currentRecord = dailyRecords.find(r => r.date === todayShort) || {
-        date: todayShort,
-        opening_balance: 0,
-        stock_purchases: 0,
-        other_expenses: 0
-      };
-
-      let amount = 0;
-      let description = '';
-      let metadata = {};
-      let category = '';
-
-      if (expenseType === 'stock') {
-        const price = Number(stockPrice);
-        const qty = Number(stockQty);
-        if (!stockName || isNaN(price) || isNaN(qty) || price <= 0 || qty <= 0) {
-          alert('Please enter valid stock details');
-          setIsSubmittingExpense(false);
-          return;
-        }
-        amount = price * qty;
-        description = stockName;
-        category = 'STOCK';
-        metadata = { price, quantity: qty };
-      } else {
-        amount = Number(expenseCost);
-        if (isNaN(amount) || amount <= 0) {
-          alert('Please enter a valid amount');
-          setIsSubmittingExpense(false);
-          return;
-        }
-        category = expenseCategory;
-        description = expenseCategory === 'OTHER' ? expenseReason : expenseCategory;
-        if (expenseCategory === 'OTHER' && !expenseReason) {
-          alert('Please specify the reason');
-          setIsSubmittingExpense(false);
-          return;
-        }
-        metadata = { reason: expenseReason };
-      }
-
-      // 1. Update Financial Record (Impacts ROI/Charts)
-      const updatedRecord = {
-        ...currentRecord,
-        stock_purchases: expenseType === 'stock'
-          ? (currentRecord.stock_purchases || 0) + amount
-          : (currentRecord.stock_purchases || 0),
-        other_expenses: expenseType === 'other'
-          ? (currentRecord.other_expenses || 0) + amount
-          : (currentRecord.other_expenses || 0)
-      };
-
-      await onUpdateRecord(updatedRecord as DailyRecord);
-
-      // 2. Log Detailed Expense (Propagated to Parent)
-      if (onLogExpense) {
-        await onLogExpense({
-          date: todayShort,
-          category,
-          amount,
-          description,
-          metadata
-        });
-      }
-
-      // Reset
-      setShowExpenseModal(false);
-      setStockName('');
-      setStockPrice('');
-      setStockQty('');
-      setExpenseReason('');
-      setExpenseCost('');
-      setExpenseCategory('TRANSPORT');
-
-      alert('Transaction recorded successfully!');
-    } catch (err) {
-      console.error(err);
-      alert('Failed to record transaction.');
-    } finally {
-      setIsSubmittingExpense(false);
-    }
-  };
 
   return (
     <div className="space-y-6 relative">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* ... StatCards ... */}
         <StatCard
-          title="Current Valuation"
-          value={formatPrice(capitalStats.current)}
-          icon={<Wallet className="text-purple-600" />}
+          title="Inventory Value"
+          value={formatPrice(products.reduce((sum, p) => sum + (p.sellPrice * p.quantity), 0))}
+          icon={<Package className="text-purple-600" />}
           color="bg-purple-50"
-          trend={initialCapital > 0 ? `${capitalStats.growth >= 0 ? '+' : ''}${capitalStats.growth.toFixed(1)}% Growth` : "Set Initial Capital"}
+          trend="Total Potential Sales"
         />
         <StatCard
           title="Today's Revenue"
@@ -260,26 +162,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           {/* Quick Actions Panel */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-slate-800">Quick Actions</h3>
-              <p className="text-sm text-slate-500">Record daily expenses instantly</p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setExpenseType('stock'); setShowExpenseModal(true); }}
-                className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-100 transition-colors"
-              >
-                <Plus size={16} /> Buy Stock
-              </button>
-              <button
-                onClick={() => { setExpenseType('other'); setShowExpenseModal(true); }}
-                className="flex items-center gap-2 bg-slate-50 text-slate-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors"
-              >
-                <Minus size={16} /> Pay Expense
-              </button>
-            </div>
-          </div>
+
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-80">
             <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center justify-between">
@@ -304,205 +187,84 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
           </div>
         </div>
 
-        <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col relative overflow-hidden">
-          <div className="absolute -top-12 -right-12 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl"></div>
+        <div className="space-y-6">
+          <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col relative overflow-hidden">
+            <div className="absolute -top-12 -right-12 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl"></div>
 
-          <div className="flex items-center justify-between mb-6 z-10">
-            <div className="flex items-center gap-2">
-              <Sparkles className="text-blue-400" size={20} />
-              <h3 className="text-lg font-bold">AI Business Advisor</h3>
-            </div>
-            {isPremium && (
-              <button
-                onClick={fetchInsights}
-                disabled={loadingInsight}
-                className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50"
-              >
-                <RefreshCcw size={16} className={loadingInsight ? "animate-spin" : ""} />
-              </button>
-            )}
-          </div>
-
-          <div className="flex-1 z-10">
-            {!isPremium ? (
-              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 py-8">
-                <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400">
-                  <Lock size={32} />
-                </div>
-                <div className="space-y-2">
-                  <h4 className="font-bold text-white">Premium Feature</h4>
-                  <p className="text-xs text-slate-400 max-w-[200px] mx-auto">
-                    Unlock Gemini AI to analyze your stock and get smart business advice.
-                  </p>
-                </div>
-                <button className="text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors">
-                  Upgrade to Premium
+            <div className="flex items-center justify-between mb-6 z-10">
+              <div className="flex items-center gap-2">
+                <Sparkles className="text-blue-400" size={20} />
+                <h3 className="text-lg font-bold">AI Business Advisor</h3>
+              </div>
+              {isPremium && (
+                <button
+                  onClick={fetchInsights}
+                  disabled={loadingInsight}
+                  className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-all disabled:opacity-50"
+                >
+                  <RefreshCcw size={16} className={loadingInsight ? "animate-spin" : ""} />
                 </button>
-              </div>
-            ) : loadingInsight ? (
-              <div className="space-y-4 animate-pulse">
-                <div className="h-4 bg-slate-800 rounded w-3/4"></div>
-                <div className="h-4 bg-slate-800 rounded w-1/2"></div>
-                <div className="h-20 bg-slate-800 rounded"></div>
-              </div>
-            ) : insight ? (
-              <div className="space-y-4">
-                <div className={`inline-block px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${insight.riskLevel === 'HIGH' ? 'bg-red-500' : insight.riskLevel === 'MEDIUM' ? 'bg-orange-500' : 'bg-emerald-500'
-                  }`}>
-                  Risk: {insight.riskLevel}
+              )}
+            </div>
+
+            <div className="flex-1 z-10">
+              {!isPremium ? (
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-4 py-8">
+                  <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400">
+                    <Lock size={32} />
+                  </div>
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-white">Premium Feature</h4>
+                    <p className="text-xs text-slate-400 max-w-[200px] mx-auto">
+                      Unlock Gemini AI to analyze your stock and get smart business advice.
+                    </p>
+                  </div>
+                  <button className="text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors">
+                    Upgrade to Premium
+                  </button>
                 </div>
-                <p className="text-sm text-slate-300 leading-relaxed">{insight.analysis}</p>
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-blue-400 uppercase">Stock Recommendations:</p>
-                  {insight.recommendations.map((rec, i) => (
-                    <div key={i} className="flex gap-2 text-xs text-slate-400">
-                      <div className="mt-1.5 w-1 h-1 rounded-full bg-blue-500 shrink-0"></div>
-                      <span>{rec}</span>
-                    </div>
-                  ))}
+              ) : loadingInsight ? (
+                <div className="space-y-4 animate-pulse">
+                  <div className="h-4 bg-slate-800 rounded w-3/4"></div>
+                  <div className="h-4 bg-slate-800 rounded w-1/2"></div>
+                  <div className="h-20 bg-slate-800 rounded"></div>
                 </div>
-                <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <p className="text-xs font-bold text-emerald-400 uppercase">Business Growth Advice:</p>
-                  {insight.businessGrowthAdvice.map((adv, i) => (
-                    <div key={i} className="flex gap-2 text-xs text-slate-300 italic">
-                      <div className="mt-1.5 w-1 h-1 rounded-full bg-emerald-500 shrink-0"></div>
-                      <span>"{adv}"</span>
-                    </div>
-                  ))}
+              ) : insight ? (
+                <div className="space-y-4">
+                  <div className={`inline-block px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${insight.riskLevel === 'HIGH' ? 'bg-red-500' : insight.riskLevel === 'MEDIUM' ? 'bg-orange-500' : 'bg-emerald-500'
+                    }`}>
+                    Risk: {insight.riskLevel}
+                  </div>
+                  <p className="text-sm text-slate-300 leading-relaxed">{insight.analysis}</p>
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-blue-400 uppercase">Stock Recommendations:</p>
+                    {insight.recommendations.map((rec, i) => (
+                      <div key={i} className="flex gap-2 text-xs text-slate-400">
+                        <div className="mt-1.5 w-1 h-1 rounded-full bg-blue-500 shrink-0"></div>
+                        <span>{rec}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2 pt-2 border-t border-slate-800">
+                    <p className="text-xs font-bold text-emerald-400 uppercase">Business Growth Advice:</p>
+                    {insight.businessGrowthAdvice.map((adv, i) => (
+                      <div key={i} className="flex gap-2 text-xs text-slate-300 italic">
+                        <div className="mt-1.5 w-1 h-1 rounded-full bg-emerald-500 shrink-0"></div>
+                        <span>"{adv}"</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500 italic text-center py-8">Run AI analysis for insights.</p>
-            )}
+              ) : (
+                <p className="text-sm text-slate-500 italic text-center py-8">Run AI analysis for insights.</p>
+              )}
+            </div>
           </div>
+
+          <CurrencyConverter currencies={currencies} />
         </div>
       </div>
 
-      {/* Quick Expense Modal */}
-      {/* Quick Expense Modal */}
-      {showExpenseModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="text-lg font-black text-slate-800">
-                {expenseType === 'stock' ? 'Record Stock Purchase' : 'Record Expense'}
-              </h3>
-              <button
-                onClick={() => setShowExpenseModal(false)}
-                className="p-2 bg-white rounded-full hover:bg-slate-100 transition-colors shadow-sm"
-                disabled={isSubmittingExpense}
-              >
-                <X size={18} className="text-slate-500" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-
-              {expenseType === 'stock' ? (
-                <>
-                  <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase">Product Name</label>
-                    <input
-                      type="text"
-                      value={stockName}
-                      onChange={(e) => setStockName(e.target.value)}
-                      placeholder="e.g. Wireless Mouse"
-                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase">Unit Price</label>
-                      <input
-                        type="number"
-                        value={stockPrice}
-                        onChange={(e) => setStockPrice(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase">Quantity</label>
-                      <input
-                        type="number"
-                        value={stockQty}
-                        onChange={(e) => setStockQty(e.target.value)}
-                        placeholder="0"
-                        className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                    </div>
-                  </div>
-                  {stockPrice && stockQty && (
-                    <div className="p-3 bg-blue-50 rounded-xl flex justify-between items-center text-blue-800 font-bold">
-                      <span>Total Cost:</span>
-                      <span>{currency.symbol} {(Number(stockPrice) * Number(stockQty)).toLocaleString()}</span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase">Category</label>
-                    <select
-                      value={expenseCategory}
-                      onChange={(e) => setExpenseCategory(e.target.value)}
-                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                      <option value="TRANSPORT">Transportation</option>
-                      <option value="SALARY">Paying Salary</option>
-                      <option value="LUNCH">Lunch for Workers</option>
-                      <option value="CASUAL">Paying Casual Labor</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-
-                  {expenseCategory === 'OTHER' && (
-                    <div className="animate-in slide-in-from-top-2">
-                      <label className="text-xs font-bold text-slate-400 uppercase">Reason</label>
-                      <input
-                        type="text"
-                        value={expenseReason}
-                        onChange={(e) => setExpenseReason(e.target.value)}
-                        placeholder="Specify reason..."
-                        className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase">Amount</label>
-                    <div className="relative mt-1">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                        {currency.symbol}
-                      </div>
-                      <input
-                        type="number"
-                        value={expenseCost}
-                        onChange={(e) => setExpenseCost(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <p className="text-[10px] text-slate-400 text-center">
-                This transaction will be logged and affect your daily closing balance.
-              </p>
-
-              <button
-                onClick={handleQuickExpense}
-                disabled={isSubmittingExpense}
-                className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg shadow-blue-200"
-              >
-                {isSubmittingExpense ? <RefreshCcw size={18} className="animate-spin" /> : <Save size={18} />}
-                {isSubmittingExpense ? 'Recording...' : 'Confirm Transaction'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

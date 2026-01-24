@@ -148,7 +148,9 @@ const InventoryManagement: React.FC<InventoryManagementProps> = ({
               <th className="px-8 py-5">Inventory Item</th>
               <th className="px-8 py-5">Category</th>
               <th className="px-8 py-5">Stock Health</th>
+              <th className="px-8 py-5">Initial Stock</th>
               <th className="px-8 py-5">Unit Price</th>
+              <th className="px-8 py-5">Total Value</th>
               <th className="px-8 py-5">Discount</th>
               {isAdmin && <th className="px-8 py-5">Operations</th>}
             </tr>
@@ -197,8 +199,18 @@ const InventoryManagement: React.FC<InventoryManagementProps> = ({
                     </div>
                   </td>
                   <td className="px-8 py-5">
+                    <div className="text-sm font-bold text-slate-600">
+                      {product.initialQuantity !== undefined ? product.initialQuantity : '-'} units
+                    </div>
+                  </td>
+                  <td className="px-8 py-5">
                     <div className="text-sm font-bold text-slate-800">{formatPrice(product.sellPrice)}</div>
                     {isAdmin && <div className="text-[10px] text-slate-400 font-bold uppercase">Cost: {formatPrice(product.buyPrice)}</div>}
+                  </td>
+                  <td className="px-8 py-5">
+                    <div className="text-sm font-black text-emerald-600">
+                      {formatPrice(product.sellPrice * product.quantity)}
+                    </div>
                   </td>
                   <td className="px-8 py-5">
                     {hasDiscount ? (
@@ -240,6 +252,19 @@ const InventoryManagement: React.FC<InventoryManagementProps> = ({
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Grand Total Footer */}
+      <div className="bg-slate-50 border-t border-slate-100 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="text-slate-500 text-sm font-medium">
+          Total Products: <span className="font-bold text-slate-800">{products.length}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-bold text-slate-500 uppercase tracking-wider">Estimated Grand Total Value:</span>
+          <span className="text-2xl font-black text-slate-800">
+            {formatPrice(products.reduce((sum, p) => sum + (p.sellPrice * p.quantity), 0))}
+          </span>
+        </div>
       </div>
 
       {/* Category Management Modal */}

@@ -23,7 +23,9 @@ import {
   Mail, MessageCircle, Menu, X, Timer
 } from 'lucide-react';
 import Purchases from './components/Admin/Purchases'; // Import Purchases
-import { LANGUAGES, CURRENCIES, translations } from './locales';
+import PayExpenses from './components/Admin/PayExpenses'; // Import PayExpenses
+import { LANGUAGES, CURRENCIES as INITIAL_CURRENCIES, translations } from './locales';
+import { getLocalDateISO } from './utils/dateUtils';
 import { INITIAL_CATEGORIES } from './constants';
 import userData from './user-data.json';
 
@@ -41,10 +43,12 @@ const TRIAL_DAYS = 7;
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(localStorage.getItem('sm_active_tab') || 'dashboard');
+  useEffect(() => { localStorage.setItem('sm_active_tab', activeTab); }, [activeTab]);
   const [theme, setTheme] = useState(localStorage.getItem('sm_theme') || 'classic');
   const [lang, setLang] = useState(localStorage.getItem('sm_lang') || 'en');
   const [currency, setCurrency] = useState(localStorage.getItem('sm_currency') || 'USD');
+  const [currencies, setCurrencies] = useState(INITIAL_CURRENCIES);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showMottoSplash, setShowMottoSplash] = useState(false);
 
@@ -64,8 +68,27 @@ const App: React.FC = () => {
   const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
 
+  // Fetch Live Currency Rates
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        const data = await res.json();
+        if (data && data.rates) {
+          setCurrencies(prev => prev.map(c => ({
+            ...c,
+            rate: data.rates[c.id] || c.rate
+          })));
+        }
+      } catch (err) {
+        console.error("Failed to fetch exchange rates", err);
+      }
+    };
+    fetchRates();
+  }, []);
+
   const t = translations[lang] || translations.en;
-  const currentCurrency = CURRENCIES.find(c => c.id === currency) || CURRENCIES[0];
+  const currentCurrency = currencies.find(c => c.id === currency) || currencies[0];
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -126,6 +149,91 @@ const App: React.FC = () => {
   }, []);
 
   // 2. Data Fetching & Realtime Sync (Run when currentUser changes)
+
+  // Define fetchData at component level so it can be called by handlers
+  const fetchData = async () => {
+    if (!currentUser) return;
+    const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+    // setLoading(true); // Optional
+    try {
+      // Fetch Products
+      const { data: productsData } = await supabase.from('products').select('*').eq('shop_id', shopId);
+      setProducts((productsData || []).map(p => ({
+        id: p.id, name: p.name, sku: p.sku, category: p.category,
+        buyPrice: p.buy_price, sellPrice: p.sell_price, quantity: p.quantity,
+        initialQuantity: p.initial_quantity,
+        minThreshold: p.min_threshold, discount: p.discount
+      })));
+
+      // Fetch Sales
+      const { data: salesData } = await supabase.from('sales').select('*').eq('shop_id', shopId);
+      setSales((salesData || []).map(s => ({
+        id: s.id, productId: s.product_id, productName: s.product_name,
+        quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
+        totalCost: s.total_cost || 0, profit: s.profit, timestamp: s.timestamp,
+        sellerId: s.seller_id, sellerName: s.seller_name
+      })));
+
+      // Fetch Rules
+      const { data: rulesData } = await supabase.from('shop_rules').select('*').eq('shop_id', shopId);
+      setRules((rulesData || []).map(r => ({
+        id: r.id, title: r.title, content: r.content, updatedAt: r.updated_at
+      })));
+
+      // Fetch Categories
+      const { data: categoriesData } = await supabase.from('categories').select('name').eq('shop_id', shopId);
+      if (categoriesData && categoriesData.length > 0) {
+        setCategories(categoriesData.map(c => c.name));
+      } else {
+        setCategories(INITIAL_CATEGORIES);
+        if (currentUser.role !== UserRole.SELLER) {
+          for (const name of INITIAL_CATEGORIES) {
+            await supabase.from('categories').insert([{ shop_id: shopId, name }]);
+          }
+        }
+      }
+
+      // Fetch Daily Records
+      const { data: recordsData } = await supabase.from('daily_records').select('*').eq('shop_id', shopId);
+      setDailyRecords((recordsData || []).map(r => ({
+        id: r.id,
+        shop_id: r.shop_id,
+        date: r.date,
+        opening_balance: r.opening_balance,
+        stock_purchases: r.stock_purchases,
+        other_expenses: r.other_expenses
+      })));
+
+      // Fetch Expense Logs
+      const { data: expensesData } = await supabase.from('expense_logs').select('*').eq('shop_id', shopId);
+      setExpenses((expensesData || []).map(e => ({
+        id: e.id,
+        date: e.date,
+        category: e.category,
+        amount: e.amount,
+        description: e.description,
+        metadata: e.metadata
+      })));
+
+      // Fetch Users
+      let profilesQuery = supabase.from('profiles').select('*');
+      if (currentUser.role === UserRole.ADMIN) {
+        profilesQuery = profilesQuery.eq('owner_id', currentUser.id);
+      }
+      const { data: profilesData } = await profilesQuery;
+      setUsers((profilesData || []).map(p => ({
+        id: p.id, name: p.name, username: p.username, role: p.role as UserRole,
+        createdAt: p.created_at, subscription: p.subscription as SubscriptionTier,
+        trialStartedAt: p.trial_started_at, ownerId: p.owner_id
+      })));
+
+    } catch (err) {
+      console.error('Error fetching data:', err);
+    } finally {
+      // setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!currentUser) {
       setProducts([]);
@@ -134,102 +242,82 @@ const App: React.FC = () => {
       setUsers([]);
       return;
     }
-
     const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
 
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch Products
-        const { data: productsData } = await supabase.from('products').select('*').eq('shop_id', shopId);
-        setProducts((productsData || []).map(p => ({
-          id: p.id, name: p.name, sku: p.sku, category: p.category,
-          buyPrice: p.buy_price, sellPrice: p.sell_price, quantity: p.quantity,
-          minThreshold: p.min_threshold, discount: p.discount
-        })));
-
-        // Fetch Sales
-        const { data: salesData } = await supabase.from('sales').select('*').eq('shop_id', shopId);
-        setSales((salesData || []).map(s => ({
-          id: s.id, productId: s.product_id, productName: s.product_name,
-          quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
-          totalCost: s.total_cost || 0, profit: s.profit, timestamp: s.timestamp,
-          sellerId: s.seller_id, sellerName: s.seller_name
-        })));
-
-        // Fetch Rules
-        const { data: rulesData } = await supabase.from('shop_rules').select('*').eq('shop_id', shopId);
-        setRules((rulesData || []).map(r => ({
-          id: r.id, title: r.title, content: r.content, updatedAt: r.updated_at
-        })));
-
-        // Fetch Categories
-        const { data: categoriesData } = await supabase.from('categories').select('name').eq('shop_id', shopId);
-        if (categoriesData && categoriesData.length > 0) {
-          setCategories(categoriesData.map(c => c.name));
-        } else {
-          setCategories(INITIAL_CATEGORIES);
-          // Only seed if Admin
-          if (currentUser.role !== UserRole.SELLER) {
-            for (const name of INITIAL_CATEGORIES) {
-              await supabase.from('categories').insert([{ shop_id: shopId, name }]);
-            }
-          }
-        }
-
-        // Fetch Daily Records
-        const { data: recordsData } = await supabase.from('daily_records').select('*').eq('shop_id', shopId);
-        setDailyRecords((recordsData || []).map(r => ({
-          id: r.id,
-          shop_id: r.shop_id,
-          date: r.date,
-          opening_balance: r.opening_balance,
-          stock_purchases: r.stock_purchases,
-          other_expenses: r.other_expenses
-        })));
-
-        // Fetch Expense Logs
-        const { data: expensesData } = await supabase.from('expense_logs').select('*').eq('shop_id', shopId);
-        setExpenses((expensesData || []).map(e => ({
-          id: e.id,
-          date: e.date,
-          category: e.category,
-          amount: e.amount,
-          description: e.description,
-          metadata: e.metadata
-        })));
-
-        // Fetch Users (Staff Management)
-        let profilesQuery = supabase.from('profiles').select('*');
-        if (currentUser.role === UserRole.ADMIN) {
-          profilesQuery = profilesQuery.eq('owner_id', currentUser.id);
-        } else if (currentUser.role === UserRole.SUPER_ADMIN) {
-          // Super admin sees everyone or we can specificy
-        }
-
-        const { data: profilesData } = await profilesQuery;
-        setUsers((profilesData || []).map(p => ({
-          id: p.id, name: p.name, username: p.username, role: p.role as UserRole,
-          createdAt: p.created_at, subscription: p.subscription as SubscriptionTier,
-          trialStartedAt: p.trial_started_at, ownerId: p.owner_id
-        })));
-
-      } catch (err) {
-        console.error('Error fetching data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+    setLoading(true);
+    fetchData().then(() => setLoading(false));
 
     // Realtime Subscriptions
     const channels = [
-      supabase.channel('products-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
-      supabase.channel('sales-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'sales', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
-      supabase.channel('categories-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'categories', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
-      supabase.channel('daily-records-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'daily_records', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
-      supabase.channel('expenses-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'expense_logs', filter: `shop_id=eq.${shopId}` }, () => fetchData()).subscribe(),
+      supabase.channel('products-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `shop_id=eq.${shopId}` }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const p = payload.new;
+          setProducts(prev => [...prev, {
+            id: p.id, name: p.name, sku: p.sku, category: p.category,
+            buyPrice: p.buy_price, sellPrice: p.sell_price, quantity: p.quantity,
+            initialQuantity: p.initial_quantity,
+            minThreshold: p.min_threshold, discount: p.discount
+          }]);
+        } else if (payload.eventType === 'UPDATE') {
+          const p = payload.new;
+          setProducts(prev => prev.map(item => item.id === p.id ? {
+            id: p.id, name: p.name, sku: p.sku, category: p.category,
+            buyPrice: p.buy_price, sellPrice: p.sell_price, quantity: p.quantity,
+            initialQuantity: p.initial_quantity,
+            minThreshold: p.min_threshold, discount: p.discount
+          } : item));
+        } else if (payload.eventType === 'DELETE') {
+          setProducts(prev => prev.filter(item => item.id !== payload.old.id));
+        }
+      }).subscribe(),
+
+      supabase.channel('sales-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'sales', filter: `shop_id=eq.${shopId}` }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const s = payload.new;
+          setSales(prev => [...prev, {
+            id: s.id, productId: s.product_id, productName: s.product_name,
+            quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
+            totalCost: s.total_cost || 0, profit: s.profit, timestamp: s.timestamp,
+            sellerId: s.seller_id, sellerName: s.seller_name
+          }]);
+        }
+        else if (payload.eventType === 'DELETE') {
+          setSales(prev => prev.filter(s => s.id !== payload.old.id));
+        }
+      }).subscribe(),
+
+      supabase.channel('categories-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'categories', filter: `shop_id=eq.${shopId}` }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setCategories(prev => [...prev, payload.new.name]);
+        } else if (payload.eventType === 'DELETE') {
+          setCategories(prev => prev.filter(c => c !== payload.old.name));
+        }
+      }).subscribe(),
+
+      supabase.channel('daily-records-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'daily_records', filter: `shop_id=eq.${shopId}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setDailyRecords(prev => [payload.new as DailyRecord, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setDailyRecords(prev => prev.map(r => r.id === payload.new.id ? payload.new as DailyRecord : r));
+          }
+        }
+      ).subscribe(),
+
+      supabase.channel('expenses-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'expense_logs', filter: `shop_id=eq.${shopId}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setExpenses(prev => {
+              if (prev.some(e => e.id === payload.new.id)) return prev;
+              return [payload.new, ...prev];
+            });
+          }
+          if (payload.eventType === 'DELETE') {
+            setExpenses(prev => prev.filter(e => e.id !== payload.old.id));
+          }
+        }
+      ).subscribe(),
+
       supabase.channel('profile-sync').on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -254,8 +342,6 @@ const App: React.FC = () => {
       channels.forEach(channel => supabase.removeChannel(channel));
     };
   }, [currentUser]);
-
-
 
 
 
@@ -300,17 +386,18 @@ const App: React.FC = () => {
   const addSale = async (newSale: Sale) => {
     try {
       const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+      const rate = currentCurrency.rate;
 
-      // 1. Insert into Sales table
+      // 1. Insert into Sales table (Normalize to USD)
       const dbSale = {
         shop_id: shopId,
         product_id: newSale.productId,
         product_name: newSale.productName,
         quantity: newSale.quantity,
-        unit_price: newSale.unitPrice,
-        total_price: newSale.totalPrice,
-        total_cost: newSale.totalCost,
-        profit: newSale.totalPrice - newSale.totalCost,
+        unit_price: newSale.unitPrice / rate,
+        total_price: newSale.totalPrice / rate,
+        total_cost: (newSale.totalCost || 0) / rate,
+        profit: (newSale.totalPrice - (newSale.totalCost || 0)) / rate,
         seller_id: currentUser?.id,
         seller_name: currentUser?.name || 'Unknown',
         timestamp: new Date().toISOString()
@@ -335,23 +422,7 @@ const App: React.FC = () => {
         if (updateError) throw updateError;
       }
 
-      // 3. Update Local State (Optimistic or Refresh)
-      // Refreshing entire list is safer but slower. 
-      // Let's just update local state to match DB result.
-
-      const processedSale: Sale = {
-        ...newSale,
-        id: insertedSale.id,
-        profit: insertedSale.profit,
-        timestamp: insertedSale.timestamp,
-        sellerId: insertedSale.seller_id,
-        sellerName: insertedSale.seller_name
-      };
-
-      setSales(prev => [...prev, processedSale]);
-      setProducts(prev => prev.map(p =>
-        p.id === newSale.productId ? { ...p, quantity: p.quantity - newSale.quantity } : p
-      ));
+      await fetchData(); // Auto-refresh data
 
     } catch (err) {
       console.error('Error adding sale:', err);
@@ -365,24 +436,20 @@ const App: React.FC = () => {
       return;
     }
     try {
-      // Prepare DB object (remove ID to let DB generate it, or use empty string handling if my schema allows)
-      // Schema says id default gen_random_uuid().
-      // My previous InventoryManagement code passed empty string for ID if new.
-      // So I should just omit ID or pass undefined if I can.
-
-      const { id, ...rest } = product; // Remove ID to let Postgres generate it
-
+      const { id, ...rest } = product;
       const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+      const rate = currentCurrency.rate;
 
-      // Map camelCase to snake_case
+      // Map camelCase to snake_case and Normalize Price to USD
       const dbProduct = {
         shop_id: shopId,
         name: rest.name,
         sku: rest.sku,
         category: rest.category,
-        buy_price: rest.buyPrice,
-        sell_price: rest.sellPrice,
+        buy_price: rest.buyPrice / rate,
+        sell_price: rest.sellPrice / rate,
         quantity: rest.quantity,
+        initial_quantity: rest.quantity,
         min_threshold: rest.minThreshold,
         discount: rest.discount
       };
@@ -390,20 +457,7 @@ const App: React.FC = () => {
       const { data, error } = await supabase.from('products').insert([dbProduct]).select().single();
       if (error) throw error;
 
-      // Map back to camelCase
-      const newHelper: Product = {
-        id: data.id,
-        name: data.name,
-        sku: data.sku,
-        category: data.category,
-        buyPrice: data.buy_price,
-        sellPrice: data.sell_price,
-        quantity: data.quantity,
-        minThreshold: data.min_threshold,
-        discount: data.discount
-      };
-
-      setProducts(prev => [...prev, newHelper]);
+      await fetchData(); // Auto refresh
     } catch (err: any) {
       console.error('Error adding product:', err);
       alert('Failed to add product: ' + err.message);
@@ -417,14 +471,15 @@ const App: React.FC = () => {
     }
     try {
       const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
+      const rate = currentCurrency.rate;
 
       const dbProduct = {
         shop_id: shopId,
         name: product.name,
         sku: product.sku,
         category: product.category,
-        buy_price: product.buyPrice,
-        sell_price: product.sellPrice,
+        buy_price: product.buyPrice / rate,
+        sell_price: product.sellPrice / rate,
         quantity: product.quantity,
         min_threshold: product.minThreshold,
         discount: product.discount
@@ -438,6 +493,7 @@ const App: React.FC = () => {
       if (error) throw error;
 
       setProducts(prev => prev.map(p => p.id === product.id ? product : p));
+      await fetchData(); // Auto refresh
 
     } catch (err: any) {
       console.error('Error editing product:', err);
@@ -500,6 +556,52 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeletePurchase = async (id: string, purchaseData: any) => {
+    if (!currentUser) return;
+    try {
+      const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+
+      // 1. Delete Expense Log
+      const { error: deleteError } = await supabase.from('expense_logs').delete().eq('id', id);
+      if (deleteError) throw deleteError;
+
+      // Remove locally immediately for response
+      setExpenses(prev => prev.filter(e => e.id !== id));
+
+      // 2. Revert Product Quantity
+      const { productId, quantity } = purchaseData.metadata;
+      if (productId) {
+        const product = products.find(p => p.id === productId);
+        if (product) {
+          const newQty = Math.max(0, product.quantity - quantity);
+          await supabase.from('products').update({ quantity: newQty }).eq('id', productId);
+        }
+      }
+
+      // 3. Update Daily Record (Revert cost)
+      const today = getLocalDateISO();
+      if (purchaseData.date === today) {
+        const { data: existingRecord } = await supabase
+          .from('daily_records')
+          .select('*')
+          .eq('shop_id', shopId)
+          .eq('date', today)
+          .single();
+
+        if (existingRecord) {
+          const amountPaid = purchaseData.amount || 0;
+          await supabase.from('daily_records').update({
+            stock_purchases: Math.max(0, existingRecord.stock_purchases - amountPaid)
+          }).eq('id', existingRecord.id);
+        }
+      }
+      await fetchData(); // Auto refresh
+    } catch (err: any) {
+      console.error("Error deleting purchase", err);
+      alert("Failed to delete purchase: " + err.message);
+    }
+  };
+
   const handleUpdateCategories = async (updatedCategories: string[]) => {
     if (!currentUser || (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)) {
       alert('Unauthorized: Only Shop Owners can update categories.');
@@ -527,26 +629,86 @@ const App: React.FC = () => {
     if (!currentUser) return;
     try {
       const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+      const rate = currentCurrency.rate;
+
+      // Normalize purchase data to USD
+      const normalizedPurchase = {
+        ...purchaseData,
+        amount: purchaseData.amount / rate,
+        metadata: {
+          ...purchaseData.metadata,
+          unitPrice: (purchaseData.metadata.unitPrice || 0) / rate,
+          sellingPrice: (purchaseData.metadata.sellingPrice || 0) / rate,
+          amountPaid: (purchaseData.metadata.amountPaid || 0) / rate,
+          amountRemained: (purchaseData.metadata.amountRemained || 0) / rate,
+          totalCost: (purchaseData.metadata.totalCost || 0) / rate
+        }
+      };
 
       // 1. Log Expense
       const { error: expenseError } = await supabase.from('expense_logs').insert([{
-        ...purchaseData,
+        ...normalizedPurchase,
         shop_id: shopId
       }]);
       if (expenseError) throw expenseError;
 
-      // 2. Update Product Quantity
-      const { productId, quantity } = purchaseData.metadata;
+      // 2. Update Product Quantity OR Create New Product
+      const { productId, quantity, productName, category, sellingPrice } = normalizedPurchase.metadata;
       const product = products.find(p => p.id === productId);
+
       if (product) {
+        // Update existing
         const { error: prodError } = await supabase.from('products')
           .update({ quantity: product.quantity + quantity })
           .eq('id', productId);
-
         if (prodError) throw prodError;
+      } else {
+        // Create NEW product
+        const { error: newProdError } = await supabase.from('products').insert([{
+          shop_id: shopId,
+          name: productName,
+          quantity: quantity,
+          initial_quantity: quantity,
+          sell_price: sellingPrice || 0,
+          buy_price: normalizedPurchase.metadata.unitPrice || 0,
+          category: category || 'Uncategorized',
+          min_threshold: 5,
+          discount: 0
+        }]);
 
-        // Optimistic update not strictly needed due to realtime, but good for UX responsiveness if realtime is slow
+        if (newProdError) {
+          console.error("Failed to create new product from purchase", newProdError);
+          alert("Warning: Expense logged but failed to create inventory item. " + newProdError.message);
+        }
       }
+
+      // 3. Update or Create Daily Record
+      const today = getLocalDateISO();
+      const { data: existingRecord } = await supabase
+        .from('daily_records')
+        .select('*')
+        .eq('shop_id', shopId)
+        .eq('date', today)
+        .single();
+
+      const currentStockPurchases = existingRecord?.stock_purchases || 0;
+      const amountToAdd = normalizedPurchase.amount || 0;
+
+      const { error: recordError } = await supabase
+        .from('daily_records')
+        .upsert({
+          id: existingRecord?.id, // If exists, update
+          shop_id: shopId,
+          date: today,
+          stock_purchases: currentStockPurchases + amountToAdd,
+          opening_balance: existingRecord?.opening_balance || 0,
+          other_expenses: existingRecord?.other_expenses || 0
+        }, { onConflict: 'shop_id,date' });
+
+      if (recordError) console.error('Error updating daily record:', recordError);
+
+      await fetchData(); // Auto-refresh all data
+
     } catch (err: any) {
       console.error('Error recording purchase:', err);
       alert('Failed to record purchase: ' + err.message);
@@ -576,6 +738,7 @@ const App: React.FC = () => {
             products={products}
             sales={sales}
             currency={currentCurrency}
+            currencies={currencies}
             isPremium={isPremium}
             dailyRecords={dailyRecords}
             initialCapital={currentUser.initialCapital || 0}
@@ -713,8 +876,38 @@ const App: React.FC = () => {
           <Purchases
             expenses={expenses}
             products={products}
+            categories={categories}
             currency={currentCurrency}
             onAddPurchase={handleAddPurchase}
+            onDeletePurchase={handleDeletePurchase}
+          />
+        );
+      case 'pay_expenses':
+        return (
+          <PayExpenses
+            expenses={expenses}
+            currency={currentCurrency}
+            onLogExpense={async (expense) => {
+              if (!currentUser) return;
+              const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
+
+              // 1. Log Expense
+              await supabase.from('expense_logs').insert({ ...expense, shop_id: shopId });
+
+              // 2. Update Daily Record
+              const today = new Date().toISOString().split('T')[0];
+              const { data: existingRecord } = await supabase.from('daily_records').select('*').eq('shop_id', shopId).eq('date', today).single();
+
+              const currentOtherExpenses = existingRecord?.other_expenses || 0;
+              await supabase.from('daily_records').upsert({
+                id: existingRecord?.id,
+                shop_id: shopId,
+                date: today,
+                other_expenses: currentOtherExpenses + expense.amount,
+                stock_purchases: existingRecord?.stock_purchases || 0,
+                opening_balance: existingRecord?.opening_balance || 0
+              }, { onConflict: 'shop_id,date' });
+            }}
           />
         );
       case 'subscription':
@@ -803,7 +996,7 @@ const App: React.FC = () => {
                 </button>
                 {showCurrencyPicker && (
                   <div className="absolute right-0 mt-3 w-48 bg-white rounded-3xl shadow-2xl border border-slate-100 p-2 z-[60] animate-in fade-in slide-in-from-top-2">
-                    {CURRENCIES.map(c => (
+                    {currencies.map(c => (
                       <button
                         key={c.id}
                         onClick={() => { setCurrency(c.id); setShowCurrencyPicker(false); }}

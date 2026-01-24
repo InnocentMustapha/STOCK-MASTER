@@ -8,6 +8,8 @@ import {
     ArrowUpCircle, ArrowDownCircle
 } from 'lucide-react';
 import Reports from './Reports';
+import { getLocalDateISO } from '../../utils/dateUtils';
+import { formatCurrency } from '../../services/currencyUtils';
 
 interface TransactionPageProps {
     sales: Sale[];
@@ -26,12 +28,13 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
     sales, products, dailyRecords, onUpdateRecord, currency, isPremium, isAdmin,
     initialCapital, onUpdateInitialCapital, expenses = []
 }) => {
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(getLocalDateISO());
     const [openingBalance, setOpeningBalance] = useState('');
-    const [stockPurchases, setStockPurchases] = useState('');
-    const [otherExpenses, setOtherExpenses] = useState('');
+
     const [capitalInput, setCapitalInput] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+
+    const format = (amount: number) => formatCurrency(amount, currency);
 
     // Financial calculations
     const dailyStats = useMemo(() => {
@@ -83,8 +86,8 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                 id: dailyStats.record.id,
                 date: selectedDate,
                 opening_balance: Number(openingBalance) || dailyStats.record.opening_balance,
-                stock_purchases: Number(stockPurchases) || dailyStats.record.stock_purchases,
-                other_expenses: Number(otherExpenses) || dailyStats.record.other_expenses
+                stock_purchases: dailyStats.record.stock_purchases, // Purely auto-calculated now
+                other_expenses: dailyStats.record.other_expenses    // Purely auto-calculated now
             } as DailyRecord);
 
             if (capitalInput) {
@@ -115,10 +118,10 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
             startY: 45,
             head: [['Metric', 'Amount']],
             body: [
-                ['(+) Sales Revenue', `${currency.symbol} ${dailyStats.salesRevenue.toLocaleString()}`],
-                ['(-) Stock Purchases', `${currency.symbol} ${dailyStats.record.stock_purchases.toLocaleString()}`],
-                ['(-) Other Expenses', `${currency.symbol} ${dailyStats.record.other_expenses.toLocaleString()}`],
-                ['= Closing Balance', { content: `${currency.symbol} ${dailyStats.closingBalance.toLocaleString()}`, styles: { fontStyle: 'bold', fillColor: [240, 255, 240] } }],
+                ['(+) Sales Revenue', format(dailyStats.salesRevenue)],
+                ['(-) Stock Purchases', format(dailyStats.record.stock_purchases)],
+                ['(-) Other Expenses', format(dailyStats.record.other_expenses)],
+                ['= Closing Balance', { content: format(dailyStats.closingBalance), styles: { fontStyle: 'bold', fillColor: [240, 255, 240] } }],
                 ['Current ROI', { content: `${dailyStats.capitalGrowth.toFixed(1)}%`, styles: { fontStyle: 'bold', textColor: dailyStats.capitalGrowth >= 0 ? [0, 128, 0] : [255, 0, 0] } }]
             ],
             theme: 'grid',
@@ -137,8 +140,8 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                     new Date(s.timestamp).toLocaleTimeString(),
                     s.productName,
                     s.quantity,
-                    `${currency.symbol} ${s.totalPrice.toLocaleString()}`,
-                    `${currency.symbol} ${s.profit.toLocaleString()}`
+                    format(s.totalPrice),
+                    format(s.profit)
                 ]),
                 theme: 'striped'
             });
@@ -168,8 +171,6 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                         onChange={(e) => {
                             setSelectedDate(e.target.value);
                             setOpeningBalance('');
-                            setStockPurchases('');
-                            setOtherExpenses('');
                         }}
                         className="p-2 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -191,32 +192,23 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                     </div>
                     <div className="text-right">
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Current Shop Value</p>
-                        <h2 className="text-3xl font-black text-slate-800">{currency.symbol} {dailyStats.closingBalance.toLocaleString()}</h2>
+                        <h2 className="text-3xl font-black text-slate-800">{format(dailyStats.closingBalance)}</h2>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Initial Capital Display/Input */}
+                    {/* Total Stock Value Display */}
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                         <div className="flex justify-between items-start mb-2">
-                            <span className="text-xs font-bold text-slate-500 uppercase">Initial Capital</span>
-                            <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-1 rounded-full">Started With</span>
+                            <span className="text-xs font-bold text-slate-500 uppercase">Total Inventory Value</span>
+                            <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-1 rounded-full">Selling Price</span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className="text-xl font-bold text-slate-700">{currency.symbol}</span>
-                            {isAdmin ? (
-                                <input
-                                    type="number"
-                                    placeholder={initialCapital.toString()}
-                                    value={capitalInput}
-                                    onChange={(e) => setCapitalInput(e.target.value)}
-                                    className="w-full bg-transparent text-xl font-bold text-slate-700 outline-none placeholder:text-slate-300"
-                                />
-                            ) : (
-                                <span className="text-xl font-bold text-slate-700">{initialCapital.toLocaleString()}</span>
-                            )}
+                            <span className="text-3xl font-black text-slate-800">
+                                {format(products.reduce((sum, p) => sum + ((p.sellPrice || 0) * (p.quantity || 0)), 0))}
+                            </span>
                         </div>
-                        {isAdmin && <p className="text-[10px] text-blue-500 mt-1 cursor-pointer" onClick={handleSave}>Click Update All to save changes</p>}
+                        <p className="text-[10px] text-slate-400 mt-2 font-medium">Potential revenue if all stock is sold</p>
                     </div>
 
                     {/* Today's Impact Flow */}
@@ -226,7 +218,7 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                                 <ArrowUpCircle size={16} />
                                 <span>Sales (In)</span>
                             </div>
-                            <span className="font-bold text-emerald-600">+{currency.symbol} {dailyStats.salesImpact.toLocaleString()}</span>
+                            <span className="font-bold text-emerald-600">+{format(dailyStats.salesImpact)}</span>
                         </div>
                         <div className="w-full h-px bg-slate-200"></div>
                         <div className="flex justify-between items-center text-sm">
@@ -234,65 +226,55 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                                 <ArrowDownCircle size={16} />
                                 <span>Purchases (Out)</span>
                             </div>
-                            <span className="font-bold text-red-500">-{currency.symbol} {dailyStats.purchaseImpact.toLocaleString()}</span>
+                            <span className="font-bold text-red-500">-{format(dailyStats.purchaseImpact)}</span>
                         </div>
                     </div>
 
                     {/* ROI Result */}
-                    <div className={`p-4 rounded-2xl border flex flex-col justify-center items-center text-center ${dailyStats.capitalGrowth >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'}`}>
-                        <p className="text-xs font-bold uppercase tracking-widest mb-1">ROI / Growth</p>
+                    <div className={`p-4 rounded-2xl border flex flex-col justify-center items-center text-center ${dailyStats.netProfit >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'}`}>
+                        <p className="text-xs font-bold uppercase tracking-widest mb-1">Net Profit Today</p>
                         <h3 className="text-3xl font-black">
-                            {dailyStats.capitalGrowth > 0 ? '+' : ''}{dailyStats.capitalGrowth.toFixed(1)}%
+                            {format(dailyStats.netProfit)}
                         </h3>
                         <p className="text-xs font-medium opacity-80 mt-1">
-                            {dailyStats.growthAmount >= 0 ? 'Profit' : 'Loss'}: {currency.symbol} {Math.abs(dailyStats.growthAmount).toLocaleString()}
+                            Sales - (Cost of Goods + Expenses)
                         </p>
                     </div>
                 </div>
             </div>
 
-            {/* Daily Inputs Grid */}
-            {isAdmin && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                    <div className="md:col-span-4 mb-2 flex items-center gap-2 text-slate-800 font-bold border-b border-slate-100 pb-2">
-                        <DollarSign size={18} />
-                        <span>Daily Financial Inputs</span>
-                        <span className="text-xs font-normal text-slate-400 ml-2">(Enter amounts for today)</span>
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-bold text-red-400 uppercase">Stock Purchases</label>
-                        <input
-                            type="number"
-                            placeholder={dailyStats.record.stock_purchases.toString()}
-                            value={stockPurchases}
-                            onChange={(e) => setStockPurchases(e.target.value)}
-                            className="w-full mt-1 p-3 bg-red-50 border border-red-100 rounded-xl font-bold text-red-800 focus:ring-2 focus:ring-red-500 outline-none"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-bold text-slate-400 uppercase">Other Expenses</label>
-                        <input
-                            type="number"
-                            placeholder={dailyStats.record.other_expenses.toString()}
-                            value={otherExpenses}
-                            onChange={(e) => setOtherExpenses(e.target.value)}
-                            className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                        />
-                    </div>
-
-                    <div className="flex items-end">
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving}
-                            className="w-full bg-blue-600 text-white p-3 rounded-xl font-bold hover:bg-blue-700 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 shadow-lg shadow-blue-200"
-                        >
-                            <Save size={18} /> {isSaving ? 'Saving...' : 'Update & Calculate'}
-                        </button>
-                    </div>
+            {/* Daily Financial Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div className="md:col-span-3 mb-2 flex items-center gap-2 text-slate-800 font-bold border-b border-slate-100 pb-2">
+                    <DollarSign size={18} />
+                    <span>Daily Financial Summary</span>
+                    <span className="text-xs font-normal text-slate-400 ml-2">(Auto-calculated from Purchases & Expenses)</span>
                 </div>
-            )}
+
+                <div className="p-4 bg-red-50/50 rounded-2xl border border-red-100">
+                    <label className="text-xs font-bold text-red-400 uppercase tracking-wider">Total Stock Purchases</label>
+                    <div className="mt-1 text-2xl font-black text-red-800">
+                        {format(dailyStats.record.stock_purchases)}
+                    </div>
+                    <p className="text-[10px] text-red-400 mt-1 font-medium">Managed in "Purchases" tab</p>
+                </div>
+
+                <div className="p-4 bg-slate-50/50 rounded-2xl border border-slate-200">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Other Expenses</label>
+                    <div className="mt-1 text-2xl font-black text-slate-800">
+                        {format(dailyStats.record.other_expenses)}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Managed in "Pay Expenses" tab</p>
+                </div>
+
+                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                    <label className="text-xs font-bold text-emerald-500 uppercase tracking-wider">Total Sales</label>
+                    <div className="mt-1 text-2xl font-black text-emerald-700">
+                        {format(dailyStats.salesRevenue)}
+                    </div>
+                    <p className="text-[10px] text-emerald-500 mt-1 font-medium">Recorded from Sales</p>
+                </div>
+            </div>
 
             {/* Daily Expenses Breakdown Table */}
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mt-6">
@@ -320,7 +302,7 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                                         </td>
                                         <td className="p-3 text-slate-600">{expense.description || '-'}</td>
                                         <td className="p-3 text-right font-black text-slate-800">
-                                            {currency.symbol} {expense.amount.toLocaleString()}
+                                            {format(expense.amount)}
                                         </td>
                                     </tr>
                                 ))

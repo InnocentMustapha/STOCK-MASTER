@@ -33,6 +33,7 @@ export interface Product {
   buyPrice: number;
   sellPrice: number;
   quantity: number;
+  initialQuantity?: number; // The quantity when product was first created
   minThreshold: number;
   discount?: number; // Percentage discount (0-100)
 }

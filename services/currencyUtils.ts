@@ -18,9 +18,10 @@ export const convertPrice = (amount: number, toRate: number): number => {
  * Formats a numeric value into a currency-specific string.
  */
 export const formatCurrency = (amount: number, currency: Currency): string => {
-    // We assume the amount is already in the target currency as stored in the DB.
-    // Double conversion was causing massive numbers in dashboards.
-    return `${currency.symbol}${amount.toLocaleString(undefined, {
+    // Convert from Base (USD) to Target Currency
+    const convertedAmount = amount * currency.rate;
+
+    return `${currency.symbol}${convertedAmount.toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
     })}`;

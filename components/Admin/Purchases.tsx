@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
-import { Plus, Search, Calendar, Filter, Download, DollarSign, User, Package, CreditCard, AlertCircle } from 'lucide-react';
+import { Plus, Search, Calendar, Filter, Download, DollarSign, User, Package, CreditCard, AlertCircle, Trash2 } from 'lucide-react';
 import { Product } from '../../types';
+import { getLocalDateISO } from '../../utils/dateUtils';
+import { formatCurrency } from '../../services/currencyUtils';
 
 interface Purchase {
     id: string;
@@ -18,24 +20,32 @@ interface Purchase {
 interface PurchasesProps {
     expenses: any[]; // We will filter for category 'STOCK'
     products: Product[];
+    categories: string[];
     currency: any;
     onAddPurchase: (purchase: any) => Promise<void>;
+    onDeletePurchase: (id: string, purchaseData: any) => Promise<void>; // Added onDeletePurchase
     className?: string; // Add className prop
 }
 
-const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onAddPurchase, className }) => {
+const Purchases: React.FC<PurchasesProps> = ({ expenses, products, categories, currency, onAddPurchase, onDeletePurchase, className }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     // Form State
-    const [selectedProductId, setSelectedProductId] = useState('');
+    const [productInput, setProductInput] = useState(''); // Text input for product
     const [agentName, setAgentName] = useState('');
     const [quantity, setQuantity] = useState(1);
     const [unitPrice, setUnitPrice] = useState(0);
     const [amountPaid, setAmountPaid] = useState(0);
 
+    // New Fields for Product Creation
+    const [category, setCategory] = useState(categories && categories.length > 0 ? categories[0] : 'Uncategorized');
+    const [sellingPrice, setSellingPrice] = useState(0);
+
     // Derived Values
-    const selectedProduct = products.find(p => p.id === selectedProductId);
+    // Try to find matching existing product by name (case insensitive)
+    const matchingProduct = products.find(p => p.name.toLowerCase() === productInput.toLowerCase());
+
     const totalCost = quantity * unitPrice;
     const amountRemained = amountPaid - totalCost; // Positive = Surplus, Negative = Debt
 
@@ -70,17 +80,19 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedProduct) return;
+        if (!productInput) return;
 
         const newPurchase = {
             category: 'STOCK',
-            date: new Date().toISOString(),
+            date: getLocalDateISO(),
             amount: amountPaid,
-            description: `Stock Purchase: ${selectedProduct.name}`,
+            description: `Stock Purchase: ${productInput}`,
             metadata: {
                 type: 'PURCHASE',
-                productId: selectedProduct.id,
-                productName: selectedProduct.name,
+                productId: matchingProduct?.id, // Use ID if found, otherwise undefined (App.tsx will skip usage update)
+                productName: productInput,      // Always use the typed name
+                category: matchingProduct ? matchingProduct.category : category, // Use existing or new category
+                sellingPrice: matchingProduct ? matchingProduct.price : sellingPrice, // Use existing or new price
                 agentName,
                 quantity,
                 unitPrice,
@@ -93,12 +105,16 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
         await onAddPurchase(newPurchase);
         setIsAddModalOpen(false);
         // Reset form
-        setSelectedProductId('');
+        setProductInput('');
         setAgentName('');
         setQuantity(1);
         setUnitPrice(0);
         setAmountPaid(0);
+        setSellingPrice(0);
+        setCategory(categories && categories.length > 0 ? categories[0] : 'Uncategorized');
     };
+
+    const format = (val: number) => formatCurrency(val, currency);
 
     return (
         <div className={`space-y-6 ${className}`}>
@@ -136,6 +152,7 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
                                 <th className="p-4 text-right text-xs font-black text-slate-400 uppercase tracking-wider">Total Cost</th>
                                 <th className="p-4 text-right text-xs font-black text-slate-400 uppercase tracking-wider">Paid</th>
                                 <th className="p-4 text-right text-xs font-black text-slate-400 uppercase tracking-wider">Remained</th>
+                                <th className="p-4 text-right text-xs font-black text-slate-400 uppercase tracking-wider">Action</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -156,16 +173,29 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
                                             {purchase.quantity}
                                         </td>
                                         <td className="p-4 text-right text-sm font-medium text-slate-500">
-                                            {currency.symbol}{purchase.unitPrice.toLocaleString()}
+                                            {format(purchase.unitPrice)}
                                         </td>
                                         <td className="p-4 text-right text-sm font-bold text-slate-800">
-                                            {currency.symbol}{purchase.totalCost.toLocaleString()}
+                                            {format(purchase.totalCost)}
                                         </td>
                                         <td className="p-4 text-right text-sm font-bold text-emerald-600 bg-emerald-50/50 rounded-lg">
-                                            {currency.symbol}{purchase.amountPaid.toLocaleString()}
+                                            {format(purchase.amountPaid)}
                                         </td>
                                         <td className={`p-4 text-right text-sm font-bold ${purchase.amountRemained >= 0 ? 'text-emerald-600 bg-emerald-50/50' : 'text-red-500 bg-red-50/50'} rounded-lg`}>
-                                            {purchase.amountRemained > 0 ? '+' : ''}{currency.symbol}{purchase.amountRemained.toLocaleString()}
+                                            {purchase.amountRemained > 0 ? '+' : ''}{format(purchase.amountRemained)}
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <button
+                                                onClick={() => {
+                                                    if (window.confirm('Are you sure you want to delete this purchase? detailed records and stock will be reverted.')) {
+                                                        onDeletePurchase(purchase.id, purchase);
+                                                    }
+                                                }}
+                                                className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                title="Delete Record"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))
@@ -183,13 +213,13 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
                                     Grand Totals
                                 </td>
                                 <td className="p-4 text-right text-sm font-black text-slate-800">
-                                    {currency.symbol}{grandTotalCost.toLocaleString()}
+                                    {format(grandTotalCost)}
                                 </td>
                                 <td className="p-4 text-right text-sm font-black text-emerald-600">
-                                    {currency.symbol}{grandTotalPaid.toLocaleString()}
+                                    {format(grandTotalPaid)}
                                 </td>
                                 <td className={`p-4 text-right text-sm font-black ${grandTotalRemained >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                    {grandTotalRemained > 0 ? '+' : ''}{currency.symbol}{grandTotalRemained.toLocaleString()}
+                                    {grandTotalRemained > 0 ? '+' : ''}{format(grandTotalRemained)}
                                 </td>
                             </tr>
                         </tfoot>
@@ -218,21 +248,72 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-2">
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Product</label>
-                                    <select
-                                        required
-                                        value={selectedProductId}
-                                        onChange={(e) => {
-                                            setSelectedProductId(e.target.value);
-                                            // Auto-fill price if possible?
-                                        }}
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                    >
-                                        <option value="">Select Product...</option>
-                                        {products.map(p => (
-                                            <option key={p.id} value={p.id}>{p.name} (Current Stock: {p.quantity})</option>
-                                        ))}
-                                    </select>
+                                    <div className="relative">
+                                        <input
+                                            required
+                                            list="product-suggestions"
+                                            type="text"
+                                            value={productInput}
+                                            onChange={(e) => setProductInput(e.target.value)}
+                                            placeholder="Type product name..."
+                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        />
+                                        <datalist id="product-suggestions">
+                                            {products.map(p => (
+                                                <option key={p.id} value={p.name}>Current Stock: {p.quantity}</option>
+                                            ))}
+                                        </datalist>
+                                        {matchingProduct && (
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
+                                                Linked (Stock: {matchingProduct.quantity})
+                                            </div>
+                                        )}
+                                        {!matchingProduct && productInput && (
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-md">
+                                                New / Untracked
+                                            </div>
+                                        )}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                                        Select from list to update stock, or type new to just record expense.
+                                    </p>
                                 </div>
+
+                                {/* New Product Fields: Category and Selling Price */}
+                                {!matchingProduct && productInput && (
+                                    <>
+                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300 col-span-2 grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 border-dashed">
+                                            <div className="col-span-2 text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Plus size={14} className="text-blue-500" />
+                                                New Product Details
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Category</label>
+                                                <select
+                                                    value={category}
+                                                    onChange={(e) => setCategory(e.target.value)}
+                                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                >
+                                                    {categories.map((c: string) => (
+                                                        <option key={c} value={c}>{c}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Selling Price ({currency.symbol})</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    required={!matchingProduct}
+                                                    value={sellingPrice}
+                                                    onChange={(e) => setSellingPrice(Number(e.target.value))}
+                                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
 
                                 <div className="col-span-2">
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Agent / Supplier Name</label>
@@ -273,7 +354,7 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
 
                                 <div className="col-span-2 bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex justify-between items-center">
                                     <span className="text-sm font-bold text-slate-600">Total Purchase Cost:</span>
-                                    <span className="text-xl font-black text-blue-600">{currency.symbol}{totalCost.toLocaleString()}</span>
+                                    <span className="text-xl font-black text-blue-600">{format(totalCost)}</span>
                                 </div>
 
                                 <div>
@@ -292,7 +373,7 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Amount Remained</label>
                                     <div className={`w-full p-3 bg-slate-100 border border-slate-200 rounded-xl font-bold ${amountRemained >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                        {amountRemained > 0 ? '+' : ''}{currency.symbol}{amountRemained.toLocaleString()}
+                                        {amountRemained > 0 ? '+' : ''}{format(amountRemained)}
                                     </div>
                                 </div>
                             </div>
@@ -307,7 +388,7 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, currency, onA
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={!selectedProduct}
+                                    disabled={!productInput}
                                     className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Save Record

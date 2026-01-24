@@ -43,7 +43,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, userRole, on
   // Add Sell button for Admin and Seller (not Super Admin)
   if (!isSuperAdmin) {
     menuItems.push({ id: 'sell', icon: ShoppingCart, label: 'Sell' });
-    menuItems.push({ id: 'purchases', icon: Package, label: 'Purchases' }); // Add Purchases
+    menuItems.push({ id: 'purchases', icon: Package, label: 'Purchases' });
+    menuItems.push({ id: 'pay_expenses', icon: CreditCard, label: 'Pay Expenses' });
   }
 
   // Motto for Super Admin, Shop Rules for others
