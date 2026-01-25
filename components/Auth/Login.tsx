@@ -9,8 +9,10 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,13 +23,38 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setLoading(true);
 
     try {
-      // Supabase requires an email. We'll use a pseudo-email if a username is entered.
-      // e.g. "admin" -> "admin@stockmaster.local"
-      const authEmail = username.includes('@')
-        ? username.toLowerCase().trim()
-        : `${username.toLowerCase().trim().replace(/\s+/g, '')}@stockmaster.local`;
+      if (isForgotPassword) {
+        if (!email) throw new Error('Please enter your email address.');
 
-      console.log(`Attempting login with: ${authEmail}`);
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin,
+        });
+        if (error) throw error;
+
+        alert('Check your email for the password reset link!');
+        setIsForgotPassword(false);
+        return;
+      }
+
+      // Login Logic: Allow Username or Email
+      // If logging in, use the 'username' field which might contain an email
+      // If signing up, use the explicit 'email' field
+
+      let authEmail = '';
+
+      if (isSignUp) {
+        if (!email) throw new Error('Email is required for sign up.');
+        authEmail = email.toLowerCase().trim();
+      } else {
+        // Login Phase
+        // 'username' state holds the input value (Username or Email)
+        const input = username.trim();
+        authEmail = input.includes('@')
+          ? input.toLowerCase()
+          : `${input.toLowerCase().replace(/\s+/g, '')}@stockmaster.local`;
+      }
+
+      console.log(`Attempting auth with: ${authEmail}`);
 
       if (isSignUp) {
         // 1. Sign Up with Supabase Auth
@@ -40,14 +67,14 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         if (authData.user) {
           // 2. Create Profile entry
-          // We default to SELLER role for new signups
           const newProfile = {
             id: authData.user.id,
             name: fullName,
-            username: username.split('@')[0], // Use the entered username (stripping domain if they typed email)
-            role: UserRole.ADMIN, // Default role for new signups is Shop Owner
+            username: username.split('@')[0],
+            role: UserRole.ADMIN,
             subscription: SubscriptionTier.NONE,
             trial_started_at: new Date().toISOString(),
+            // We could store email in profile too if needed, but it's in auth.users
           };
 
           const { error: profileError } = await supabase
@@ -59,8 +86,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             throw new Error('Account created but profile setup failed. ' + profileError.message);
           }
 
-          // 3. Log them in (trigger onLogin)
-          // Map snake_case DB fields to camelCase User type
           const user: User = {
             id: newProfile.id,
             name: newProfile.name,
@@ -75,7 +100,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         }
       } else {
         // LOGIN LOGIC
-        // 1. Sign In
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
           email: authEmail,
           password,
@@ -84,7 +108,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         if (authError) throw authError;
 
         if (authData.user) {
-          // 2. Fetch Profile
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
@@ -94,7 +117,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           if (profileError) throw profileError;
           if (!profile) throw new Error('User profile not found.');
 
-          // Map snake_case DB fields to camelCase User type
           const user: User = {
             id: profile.id,
             name: profile.name,
@@ -127,10 +149,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md z-10">
         <div className="flex flex-col items-center mb-10 text-center">
           <div className="bg-blue-600 p-4 rounded-2xl mb-4 text-white shadow-lg shadow-blue-200">
-            <ShieldCheck size={36} strokeWidth={2.5} />
+            {isForgotPassword ? <Mail size={36} strokeWidth={2.5} /> : <ShieldCheck size={36} strokeWidth={2.5} />}
           </div>
           <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">STOCK MASTER</h2>
-          <p className="text-slate-500 mt-2 font-medium">{isSignUp ? 'Create your Shop Owner account' : 'Business Intelligence & Inventory'}</p>
+          <p className="text-slate-500 mt-2 font-medium">
+            {isForgotPassword ? 'Recover your account' : isSignUp ? 'Create your Shop Owner account' : 'Business Intelligence & Inventory'}
+          </p>
         </div>
 
         {error && (
@@ -141,58 +165,116 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {isSignUp && (
+
+          {/* Forgot Password Flow */}
+          {isForgotPassword ? (
             <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
               <div className="relative group">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                  <ShieldCheck size={18} />
+                  <Mail size={18} />
                 </span>
                 <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. John Doe"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
                   className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
                   required
                 />
               </div>
+              <p className="text-xs text-slate-400 mt-2 px-1">We'll send a password reset link to this email.</p>
             </div>
+          ) : (
+            // Login / SignUp Flow
+            <>
+              {isSignUp && (
+                <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                      <ShieldCheck size={18} />
+                    </span>
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="e.g. John Doe"
+                      className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Email Field - Only for Sign Up */}
+              {isSignUp && (
+                <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                      <Mail size={18} />
+                    </span>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                      required={isSignUp}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">
+                  {isSignUp ? 'Username' : 'Username or Email'}
+                </label>
+                <div className="relative group">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                    <Users size={18} />
+                  </span>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={isSignUp ? "Choose a username" : "Enter username or email"}
+                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Password</label>
+                  {!isSignUp && (
+                    <button
+                      type="button"
+                      onClick={() => { setIsForgotPassword(true); setError(''); }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                    >
+                      Forgot Password?
+                    </button>
+                  )}
+                </div>
+                <div className="relative group">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                    <KeyRound size={18} />
+                  </span>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                    required
+                  />
+                </div>
+              </div>
+            </>
           )}
-
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Username</label>
-            <div className="relative group">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                <Users size={18} />
-              </span>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
-                className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Password</label>
-            <div className="relative group">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                <KeyRound size={18} />
-              </span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
-                required
-              />
-            </div>
-          </div>
 
           <button
             type="submit"
@@ -203,8 +285,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
             ) : (
               <>
-                <Lock size={18} />
-                {isSignUp ? 'Create Account' : 'Secure Access'}
+                {isForgotPassword ? <Mail size={18} /> : <Lock size={18} />}
+                {isForgotPassword ? 'Send Reset Link' : isSignUp ? 'Create Account' : 'Secure Access'}
               </>
             )}
           </button>
@@ -213,12 +295,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="mt-6 text-center">
           <button
             onClick={() => {
-              setIsSignUp(!isSignUp);
-              setError('');
+              if (isForgotPassword) {
+                setIsForgotPassword(false);
+                setError('');
+              } else {
+                setIsSignUp(!isSignUp);
+                setError('');
+              }
             }}
             className="text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors"
           >
-            {isSignUp ? 'Already have an account? Log in' : 'New Shop Owner? Create account'}
+            {isForgotPassword
+              ? 'Back to Login'
+              : isSignUp
+                ? 'Already have an account? Log in'
+                : 'New Shop Owner? Create account'}
           </button>
         </div>
 
