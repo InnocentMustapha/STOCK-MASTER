@@ -23,6 +23,7 @@ import {
   Mail, MessageCircle, Menu, X, Timer
 } from 'lucide-react';
 import Purchases from './components/Admin/Purchases'; // Import Purchases
+import Profile from './components/Admin/Profile'; // Import Profile (will create)
 import PayExpenses from './components/Admin/PayExpenses'; // Import PayExpenses
 import { LANGUAGES, CURRENCIES as INITIAL_CURRENCIES, translations } from './locales';
 import { getLocalDateISO } from './utils/dateUtils';
@@ -47,18 +48,14 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('sm_active_tab', activeTab); }, [activeTab]);
   const [theme, setTheme] = useState(localStorage.getItem('sm_theme') || 'classic');
   const [lang, setLang] = useState(localStorage.getItem('sm_lang') || 'en');
-  const [currency, setCurrency] = useState(localStorage.getItem('sm_currency') || 'USD');
-  const [currencies, setCurrencies] = useState(INITIAL_CURRENCIES);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showMottoSplash, setShowMottoSplash] = useState(false);
 
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState(false);
-  const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
   const themePickerRef = useRef<HTMLDivElement>(null);
   const langPickerRef = useRef<HTMLDivElement>(null);
-  const currencyPickerRef = useRef<HTMLDivElement>(null);
 
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -67,28 +64,11 @@ const App: React.FC = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
-
-  // Fetch Live Currency Rates
-  useEffect(() => {
-    const fetchRates = async () => {
-      try {
-        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
-        const data = await res.json();
-        if (data && data.rates) {
-          setCurrencies(prev => prev.map(c => ({
-            ...c,
-            rate: data.rates[c.id] || c.rate
-          })));
-        }
-      } catch (err) {
-        console.error("Failed to fetch exchange rates", err);
-      }
-    };
-    fetchRates();
-  }, []);
+  const [agentBalances, setAgentBalances] = useState<any[]>([]);
 
   const t = translations[lang] || translations.en;
-  const currentCurrency = currencies.find(c => c.id === currency) || currencies[0];
+  // Fixed to TZS only - no currency conversion
+  const currentCurrency = { id: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling', rate: 1 };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -96,14 +76,12 @@ const App: React.FC = () => {
   }, [theme]);
 
   useEffect(() => { localStorage.setItem('sm_lang', lang); }, [lang]);
-  useEffect(() => { localStorage.setItem('sm_currency', currency); }, [currency]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (themePickerRef.current && !themePickerRef.current.contains(target)) setShowThemePicker(false);
       if (langPickerRef.current && !langPickerRef.current.contains(target)) setShowLangPicker(false);
-      if (currencyPickerRef.current && !currencyPickerRef.current.contains(target)) setShowCurrencyPicker(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -127,7 +105,9 @@ const App: React.FC = () => {
             subscription: profile.subscription as SubscriptionTier,
             trialStartedAt: profile.trial_started_at,
             ownerId: profile.owner_id,
-            initialCapital: profile.initial_capital || 0
+            initialCapital: profile.initial_capital || 0,
+            phone: profile.phone,
+            avatarUrl: profile.avatar_url
           });
         }
       }
@@ -213,6 +193,15 @@ const App: React.FC = () => {
         amount: e.amount,
         description: e.description,
         metadata: e.metadata
+      })));
+
+      // Fetch Agent Balances
+      const { data: agentBalancesData } = await supabase.from('agent_balances').select('*').eq('shop_id', shopId);
+      setAgentBalances((agentBalancesData || []).map(ab => ({
+        id: ab.id,
+        agent_name: ab.agent_name,
+        balance: ab.balance,
+        last_updated: ab.last_updated
       })));
 
       // Fetch Users
@@ -386,18 +375,17 @@ const App: React.FC = () => {
   const addSale = async (newSale: Sale) => {
     try {
       const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
-      const rate = currentCurrency.rate;
 
-      // 1. Insert into Sales table (Normalize to USD)
+      // 1. Insert into Sales table (Store prices directly in TZS - no conversion)
       const dbSale = {
         shop_id: shopId,
         product_id: newSale.productId,
         product_name: newSale.productName,
         quantity: newSale.quantity,
-        unit_price: newSale.unitPrice / rate,
-        total_price: newSale.totalPrice / rate,
-        total_cost: (newSale.totalCost || 0) / rate,
-        profit: (newSale.totalPrice - (newSale.totalCost || 0)) / rate,
+        unit_price: newSale.unitPrice,
+        total_price: newSale.totalPrice,
+        total_cost: newSale.totalCost || 0,
+        profit: newSale.totalPrice - (newSale.totalCost || 0),
         seller_id: currentUser?.id,
         seller_name: currentUser?.name || 'Unknown',
         timestamp: new Date().toISOString()
@@ -438,16 +426,15 @@ const App: React.FC = () => {
     try {
       const { id, ...rest } = product;
       const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
-      const rate = currentCurrency.rate;
 
-      // Map camelCase to snake_case and Normalize Price to USD
+      // Map camelCase to snake_case - Store prices AS ENTERED (no currency conversion)
       const dbProduct = {
         shop_id: shopId,
         name: rest.name,
         sku: rest.sku,
         category: rest.category,
-        buy_price: rest.buyPrice / rate,
-        sell_price: rest.sellPrice / rate,
+        buy_price: rest.buyPrice,
+        sell_price: rest.sellPrice,
         quantity: rest.quantity,
         initial_quantity: rest.quantity,
         min_threshold: rest.minThreshold,
@@ -471,15 +458,15 @@ const App: React.FC = () => {
     }
     try {
       const shopId = currentUser?.role === UserRole.SELLER ? currentUser.ownerId : currentUser?.id;
-      const rate = currentCurrency.rate;
 
+      // Store prices AS ENTERED (no currency conversion)
       const dbProduct = {
         shop_id: shopId,
         name: product.name,
         sku: product.sku,
         category: product.category,
-        buy_price: product.buyPrice / rate,
-        sell_price: product.sellPrice / rate,
+        buy_price: product.buyPrice,
+        sell_price: product.sellPrice,
         quantity: product.quantity,
         min_threshold: product.minThreshold,
         discount: product.discount
@@ -595,6 +582,24 @@ const App: React.FC = () => {
           }).eq('id', existingRecord.id);
         }
       }
+
+      // 4. Revert Agent Balance
+      const { agentName, amountRemained } = purchaseData.metadata || {};
+      if (agentName && amountRemained !== undefined) {
+        // Reverse the balance change
+        const balanceChange = -amountRemained;
+
+        const { error: balanceError } = await supabase.rpc('update_agent_balance', {
+          p_shop_id: shopId,
+          p_agent_name: agentName,
+          p_amount_change: balanceChange
+        });
+
+        if (balanceError) {
+          console.error('Error reverting agent balance:', balanceError);
+        }
+      }
+
       await fetchData(); // Auto refresh
     } catch (err: any) {
       console.error("Error deleting purchase", err);
@@ -707,6 +712,24 @@ const App: React.FC = () => {
 
       if (recordError) console.error('Error updating daily record:', recordError);
 
+      // 4. Update Agent Balance
+      const { agentName, amountRemained } = normalizedPurchase.metadata;
+      if (agentName) {
+        // Calculate the balance change: negative amountRemained means debt
+        const balanceChange = amountRemained;
+
+        const { error: balanceError } = await supabase.rpc('update_agent_balance', {
+          p_shop_id: shopId,
+          p_agent_name: agentName,
+          p_amount_change: balanceChange
+        });
+
+        if (balanceError) {
+          console.error('Error updating agent balance:', balanceError);
+          // Don't fail the whole transaction, just log the error
+        }
+      }
+
       await fetchData(); // Auto-refresh all data
 
     } catch (err: any) {
@@ -738,10 +761,10 @@ const App: React.FC = () => {
             products={products}
             sales={sales}
             currency={currentCurrency}
-            currencies={currencies}
             isPremium={isPremium}
             dailyRecords={dailyRecords}
             initialCapital={currentUser.initialCapital || 0}
+            shopName={currentUser.name}
             onUpdateRecord={async (record) => {
               const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
               const { error } = await supabase.from('daily_records').upsert(
@@ -767,6 +790,8 @@ const App: React.FC = () => {
             categories={categories}
           />
         );
+      case 'profile':
+        return <Profile currentUser={currentUser} onUpdateUser={setCurrentUser} />;
       case 'system':
         return (
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
@@ -878,6 +903,7 @@ const App: React.FC = () => {
             products={products}
             categories={categories}
             currency={currentCurrency}
+            agentBalances={agentBalances}
             onAddPurchase={handleAddPurchase}
             onDeletePurchase={handleDeletePurchase}
           />
@@ -938,6 +964,7 @@ const App: React.FC = () => {
           userRole={currentUser.role}
           onLogout={handleLogout}
           userName={currentUser.name}
+          userAvatar={currentUser.avatarUrl}
           translations={t}
         />
       </div>
@@ -985,31 +1012,6 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3 ml-auto">
-              <div className="relative" ref={currencyPickerRef}>
-                <button
-                  onClick={() => setShowCurrencyPicker(!showCurrencyPicker)}
-                  className="flex items-center gap-2 bg-white px-3 py-2.5 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-500 hover:text-blue-600 transition-all active:scale-95"
-                >
-                  <Banknote size={18} />
-                  <span className="text-xs font-bold">{currentCurrency.id} ({currentCurrency.symbol})</span>
-                  <ChevronDown size={14} className={`transition-transform duration-200 ${showCurrencyPicker ? 'rotate-180' : ''}`} />
-                </button>
-                {showCurrencyPicker && (
-                  <div className="absolute right-0 mt-3 w-48 bg-white rounded-3xl shadow-2xl border border-slate-100 p-2 z-[60] animate-in fade-in slide-in-from-top-2">
-                    {currencies.map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => { setCurrency(c.id); setShowCurrencyPicker(false); }}
-                        className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-semibold ${currency === c.id ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50'}`}
-                      >
-                        <span>{c.name}</span>
-                        <span className="font-bold">{c.symbol}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               <div className="relative" ref={langPickerRef}>
                 <button
                   onClick={() => setShowLangPicker(!showLangPicker)}

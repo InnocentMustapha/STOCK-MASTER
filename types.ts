@@ -23,6 +23,8 @@ export interface User {
   trialStartedAt?: string; // ISO string of when trial began
   ownerId?: string; // ID of the Admin who owns this worker (for SELLER role)
   initialCapital?: number;
+  phone?: string;
+  avatarUrl?: string;
 }
 
 export interface Product {

@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Sale, InventoryInsight, DailyRecord } from '../../types';
 import { getInventoryInsights } from '../../services/geminiService';
 import { formatCurrency } from '../../services/currencyUtils';
-import CurrencyConverter from '../Shared/CurrencyConverter'; // Imported
 import {
   TrendingUp,
   TrendingDown,
@@ -38,15 +37,16 @@ interface AdminDashboardProps {
   products: Product[];
   sales: Sale[];
   currency: any;
-  currencies: any[]; // Added currencies prop
   isPremium: boolean;
   dailyRecords: DailyRecord[];
   initialCapital: number;
   onUpdateRecord: (record: DailyRecord) => Promise<void>;
   onLogExpense?: (log: any) => Promise<void>;
+  expenses?: any[];
+  shopName?: string;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, currencies, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense, expenses, shopName }) => {
   const [insight, setInsight] = useState<InventoryInsight | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
 
@@ -121,41 +121,53 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
 
   return (
     <div className="space-y-6 relative">
+      {/* Shop Name Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center py-2">
+        <div>
+          {shopName && (
+            <h1 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 tracking-tighter drop-shadow-sm mb-1 animate-in fade-in slide-in-from-left-4 duration-500">
+              {shopName}
+            </h1>
+          )}
+          <h2 className="text-xl font-bold text-slate-400 pl-1 uppercase tracking-widest">Dashboard Overview</h2>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* ... StatCards ... */}
         <StatCard
           title="Inventory Value"
           value={formatPrice(products.reduce((sum, p) => sum + (p.sellPrice * p.quantity), 0))}
-          icon={<Package className="text-purple-600" />}
-          color="bg-purple-50"
+          icon={<Package />} // Removed className since StatCard overrides it
+          color="bg-gradient-to-br from-purple-500 to-indigo-600"
           trend="Total Potential Sales"
         />
         <StatCard
           title="Today's Revenue"
           value={formatPrice(stats.totalSales)}
-          icon={<DollarSign className="text-emerald-600" />}
-          color="bg-emerald-50"
+          icon={<DollarSign />}
+          color="bg-gradient-to-br from-emerald-400 to-emerald-600"
           trend="+12%"
         />
         <StatCard
           title="Today's Profit"
           value={formatPrice(stats.profit)}
-          icon={<TrendingUp className="text-blue-600" />}
-          color="bg-blue-50"
+          icon={<TrendingUp />}
+          color="bg-gradient-to-br from-blue-400 to-blue-600"
           trend="+5%"
         />
         <StatCard
           title="Low Stock Items"
           value={stats.lowStockCount.toString()}
-          icon={<AlertTriangle className="text-orange-600" />}
-          color="bg-orange-50"
+          icon={<AlertTriangle />}
+          color={stats.lowStockCount > 5 ? "bg-gradient-to-br from-red-500 to-orange-600" : "bg-gradient-to-br from-orange-400 to-orange-600"}
           trend={stats.lowStockCount > 5 ? "Action Needed" : "Stable"}
         />
         <StatCard
           title="Today's Sales"
           value={stats.todaysSalesCount.toString()}
-          icon={<ShoppingCart className="text-indigo-600" />}
-          color="bg-indigo-50"
+          icon={<ShoppingCart />}
+          color="bg-gradient-to-br from-indigo-400 to-blue-500"
         />
       </div>
 
@@ -260,8 +272,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
               )}
             </div>
           </div>
-
-          <CurrencyConverter currencies={currencies} />
         </div>
       </div>
 
@@ -278,18 +288,31 @@ interface StatCardProps {
 }
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color, trend }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-start justify-between">
-    <div className="space-y-3">
-      <p className="text-slate-500 text-sm font-medium">{title}</p>
-      <h4 className="text-2xl font-bold text-slate-800">{value}</h4>
-      {trend && (
-        <div className={`flex items-center gap-1 text-xs font-semibold ${trend.includes('+') ? 'text-emerald-600' : 'text-slate-400'}`}>
-          {trend.includes('+') ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-          {trend}
-        </div>
-      )}
+  <div className={`${color} p-5 rounded-2xl shadow-lg shadow-gray-200/50 flex flex-col justify-between h-full min-h-[140px] relative overflow-hidden group transition-all hover:scale-[1.02] hover:shadow-xl`}>
+    <div className="absolute top-0 right-0 p-4 opacity-20 transform translate-x-2 -translate-y-2 group-hover:scale-110 transition-transform">
+      {/* Clone icon with larger size for background effect */}
+      {React.cloneElement(icon as React.ReactElement, { size: 64, className: 'text-white' })}
     </div>
-    <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
+
+    <div className="relative z-10">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="p-2 bg-white/20 backdrop-blur-sm rounded-lg text-white shadow-inner">
+          {React.cloneElement(icon as React.ReactElement, { size: 20, className: 'text-white' })}
+        </div>
+        <p className="text-white/90 text-sm font-bold uppercase tracking-wider">{title}</p>
+      </div>
+
+      <h4 className="text-3xl font-black text-white tracking-tight break-all">{value}</h4>
+    </div>
+
+    {trend && (
+      <div className="relative z-10 mt-3 pt-3 border-t border-white/10">
+        <p className="text-xs font-medium text-white/80 flex items-center gap-1">
+          <span className="bg-white/20 px-1.5 py-0.5 rounded text-white font-bold">{trend}</span>
+          <span className="opacity-70">vs last week</span>
+        </p>
+      </div>
+    )}
   </div>
 );
 

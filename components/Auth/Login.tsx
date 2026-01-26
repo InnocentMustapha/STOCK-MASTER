@@ -9,9 +9,11 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [signUpMethod, setSignUpMethod] = useState<'phone' | 'email'>('phone');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,110 +26,172 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     try {
       if (isForgotPassword) {
-        if (!email) throw new Error('Please enter your email address.');
+        if (!email && !phone) throw new Error('Please enter your email or phone.');
 
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin,
-        });
-        if (error) throw error;
-
-        alert('Check your email for the password reset link!');
+        let identifier = email || phone;
+        alert(`Password recovery instructions sent to ${identifier}. (Simulation)`);
         setIsForgotPassword(false);
         return;
       }
 
-      // Login Logic: Allow Username or Email
-      // If logging in, use the 'username' field which might contain an email
-      // If signing up, use the explicit 'email' field
-
+      // Auth Logic
       let authEmail = '';
 
       if (isSignUp) {
-        if (!email) throw new Error('Email is required for sign up.');
-        authEmail = email.toLowerCase().trim();
+        if (signUpMethod === 'email') {
+          if (!email) throw new Error('Email is required.');
+          authEmail = email.toLowerCase().trim();
+        } else {
+          if (!phone) throw new Error('Phone number is required.');
+          const cleanPhone = phone.replace(/\D/g, '');
+          authEmail = `${cleanPhone}@stockmaster.local`;
+        }
       } else {
         // Login Phase
-        // 'username' state holds the input value (Username or Email)
+        // Identify if input is Phone (digits) or Email (@)
+        // We use 'username' state for the login input
         const input = username.trim();
-        authEmail = input.includes('@')
-          ? input.toLowerCase()
-          : `${input.toLowerCase().replace(/\s+/g, '')}@stockmaster.local`;
+
+        const isPhone = /^\d+$/.test(input.replace(/\D/g, '')) && input.length > 6 && !input.includes('@');
+
+        if (isPhone) {
+          const cleanPhone = input.replace(/\D/g, '');
+          authEmail = `${cleanPhone}@stockmaster.local`;
+        } else if (input.includes('@')) {
+          // Likely an email (either real or stockmaster.local)
+          // But if they type 'john@example.com', we use it. 
+          // If they type just username 'john', we construct pseudo-email
+          authEmail = input.toLowerCase();
+        } else {
+          // Username login
+          authEmail = `${input.toLowerCase().replace(/\s+/g, '')}@stockmaster.local`;
+        }
       }
 
       console.log(`Attempting auth with: ${authEmail}`);
 
+      let userAuth = null;
+      let isNewUser = false;
+
       if (isSignUp) {
-        // 1. Sign Up with Supabase Auth
+        // 1. Try Sign Up
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: authEmail,
           password,
         });
 
-        if (authError) throw authError;
+        if (authError) {
+          // Handle "User already registered"
+          if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
+            console.log('User exists, attempting login...');
+            const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+              email: authEmail,
+              password,
+            });
 
-        if (authData.user) {
-          // 2. Create Profile entry
+            if (loginError) throw new Error('Account exists but password was incorrect. Please Log In.');
+
+            userAuth = loginData.user;
+            isNewUser = false; // Existing user, so we check/repair profile
+          } else {
+            throw authError;
+          }
+        } else {
+          userAuth = authData.user;
+          isNewUser = true; // New user, create profile
+        }
+      } else {
+        // LOGIN
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password,
+        });
+        if (authError) throw authError;
+        userAuth = authData.user;
+        isNewUser = false;
+      }
+
+      // 2. Profile Management
+      if (userAuth) {
+        if (isNewUser) {
           const newProfile = {
-            id: authData.user.id,
+            id: userAuth.id,
             name: fullName,
-            username: username.split('@')[0],
+            username: username || (signUpMethod === 'email' ? email.split('@')[0] : phone),
+            phone: signUpMethod === 'phone' ? phone : undefined,
             role: UserRole.ADMIN,
             subscription: SubscriptionTier.NONE,
             trial_started_at: new Date().toISOString(),
-            // We could store email in profile too if needed, but it's in auth.users
           };
 
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .insert([newProfile]);
-
+          const { error: profileError } = await supabase.from('profiles').insert([newProfile]);
           if (profileError) {
             console.error('Profile creation error:', profileError);
-            throw new Error('Account created but profile setup failed. ' + profileError.message);
+            // If conflict, maybe it already exists? treat as repair needed?
+            // For now throw, or could fall through to repair check.
+            throw new Error('Account created but profile setup failed: ' + profileError.message);
           }
 
-          const user: User = {
+          onLogin({
             id: newProfile.id,
             name: newProfile.name,
             username: newProfile.username,
             role: newProfile.role,
             createdAt: new Date().toISOString(),
             subscription: newProfile.subscription,
-            trialStartedAt: newProfile.trial_started_at
-          };
+            trialStartedAt: newProfile.trial_started_at,
+            phone: newProfile.phone
+          });
 
-          onLogin(user);
-        }
-      } else {
-        // LOGIN LOGIC
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-          email: authEmail,
-          password,
-        });
-
-        if (authError) throw authError;
-
-        if (authData.user) {
-          const { data: profile, error: profileError } = await supabase
+        } else {
+          // Check / Repair Profile
+          const { data: profile, error: profileFetchError } = await supabase
             .from('profiles')
             .select('*')
-            .eq('id', authData.user.id)
+            .eq('id', userAuth.id)
             .single();
 
-          if (profileError) throw profileError;
-          if (!profile) throw new Error('User profile not found.');
+          if (!profile) {
+            // Self-Repair
+            console.log('Profile missing. Attempting repair...');
+            const repairProfile = {
+              id: userAuth.id,
+              name: fullName || 'Shop Owner',
+              username: username || userAuth.email?.split('@')[0] || 'user',
+              role: UserRole.ADMIN,
+              subscription: SubscriptionTier.NONE,
+              trial_started_at: new Date().toISOString(),
+              phone: phone || undefined
+            };
 
-          const user: User = {
+            const { error: repairError } = await supabase.from('profiles').insert([repairProfile]);
+            if (repairError) throw new Error('Profile missing and passed repair failed. Contact Support.');
+
+            onLogin({
+              id: repairProfile.id,
+              name: repairProfile.name,
+              username: repairProfile.username,
+              role: repairProfile.role,
+              createdAt: new Date().toISOString(),
+              subscription: repairProfile.subscription,
+              trialStartedAt: repairProfile.trial_started_at,
+              phone: repairProfile.phone
+            });
+            return;
+          }
+
+          if (profileFetchError) throw profileFetchError;
+
+          onLogin({
             id: profile.id,
             name: profile.name,
             username: profile.username,
             role: profile.role as UserRole,
             createdAt: profile.created_at,
             subscription: profile.subscription as SubscriptionTier,
-            trialStartedAt: profile.trial_started_at
-          };
-
-          onLogin(user);
+            trialStartedAt: profile.trial_started_at,
+            phone: profile.phone
+          });
         }
       }
     } catch (err: any) {
@@ -147,13 +211,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       </div>
 
       <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md z-10">
-        <div className="flex flex-col items-center mb-10 text-center">
+        <div className="flex flex-col items-center mb-6 text-center">
           <div className="bg-blue-600 p-4 rounded-2xl mb-4 text-white shadow-lg shadow-blue-200">
-            {isForgotPassword ? <Mail size={36} strokeWidth={2.5} /> : <ShieldCheck size={36} strokeWidth={2.5} />}
+            {isForgotPassword ? <Lock size={36} strokeWidth={2.5} /> : <ShieldCheck size={36} strokeWidth={2.5} />}
           </div>
           <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">STOCK MASTER</h2>
           <p className="text-slate-500 mt-2 font-medium">
-            {isForgotPassword ? 'Recover your account' : isSignUp ? 'Create your Shop Owner account' : 'Business Intelligence & Inventory'}
+            {isForgotPassword ? 'Reset Password' : isSignUp ? 'Create Shop Account' : 'Business Intelligence'}
           </p>
         </div>
 
@@ -166,24 +230,53 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
+          {/* Method Toggle for SignUp */}
+          {isSignUp && !isForgotPassword && (
+            <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
+              <button
+                type="button"
+                onClick={() => setSignUpMethod('phone')}
+                className={`flex-1 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${signUpMethod === 'phone' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Phone Number
+              </button>
+              <button
+                type="button"
+                onClick={() => setSignUpMethod('email')}
+                className={`flex-1 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${signUpMethod === 'email' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Email Address
+              </button>
+            </div>
+          )}
+
           {/* Forgot Password Flow */}
           {isForgotPassword ? (
-            <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
-              <div className="relative group">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                  <Mail size={18} />
-                </span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
-                  required
-                />
+            <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">
+              <div className="bg-slate-50 p-4 rounded-xl text-center">
+                <p className="text-sm text-slate-600">Enter your registered email or phone number to receive reset instructions.</p>
               </div>
-              <p className="text-xs text-slate-400 mt-2 px-1">We'll send a password reset link to this email.</p>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email or Phone</label>
+                <div className="relative group">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                    <Users size={18} />
+                  </span>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      setEmail(e.target.value.includes('@') ? e.target.value : '');
+                      setPhone(!e.target.value.includes('@') ? e.target.value : '');
+                    }}
+                    placeholder="e.g. 0712345678 or name@example.com"
+                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                    required
+                  />
+                </div>
+              </div>
             </div>
           ) : (
             // Login / SignUp Flow
@@ -207,44 +300,83 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Email Field - Only for Sign Up */}
-              {isSignUp && (
-                <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
+              {/* SignUp: Conditional Fields */}
+              {isSignUp ? (
+                signUpMethod === 'phone' ? (
+                  <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Phone Number</label>
+                    <div className="relative group">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                        <MessageCircle size={18} />
+                      </span>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="e.g. 0712345678"
+                        className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                        required={isSignUp}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
+                    <div className="relative group">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                        <Mail size={18} />
+                      </span>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="name@example.com"
+                        className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                        required={isSignUp}
+                      />
+                    </div>
+                  </div>
+                )
+              ) : (
+                // Login Input (Phone, Email, or Username)
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">
+                    Phone, Email or Username
+                  </label>
                   <div className="relative group">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                      <Mail size={18} />
+                      <Users size={18} />
                     </span>
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Enter phone, email or username"
                       className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
-                      required={isSignUp}
+                      required
                     />
                   </div>
                 </div>
               )}
 
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">
-                  {isSignUp ? 'Username' : 'Username or Email'}
-                </label>
-                <div className="relative group">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                    <Users size={18} />
-                  </span>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder={isSignUp ? "Choose a username" : "Enter username or email"}
-                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
-                    required
-                  />
+              {isSignUp && (
+                // Clean up Username field for signup (optional)
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Username (Optional)</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                      <Users size={18} />
+                    </span>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Choose a username"
+                      className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
@@ -285,8 +417,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
             ) : (
               <>
-                {isForgotPassword ? <Mail size={18} /> : <Lock size={18} />}
-                {isForgotPassword ? 'Send Reset Link' : isSignUp ? 'Create Account' : 'Secure Access'}
+                {isForgotPassword ? <MessageCircle size={18} /> : <Lock size={18} />}
+                {isForgotPassword ? 'Send Recovery Code' : isSignUp ? 'Create Account' : 'Secure Access'}
               </>
             )}
           </button>

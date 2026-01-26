@@ -362,11 +362,11 @@ const InventoryManagement: React.FC<InventoryManagementProps> = ({
               <div className="grid grid-cols-3 gap-5">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Cost Price</label>
-                  <input type="number" step="0.01" name="buyPrice" defaultValue={editingProduct?.buyPrice} required className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" />
+                  <input type="number" step="any" name="buyPrice" defaultValue={editingProduct?.buyPrice} required className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Sale Price</label>
-                  <input type="number" step="0.01" name="sellPrice" defaultValue={editingProduct?.sellPrice} required className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" />
+                  <input type="number" step="any" name="sellPrice" defaultValue={editingProduct?.sellPrice} required className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1 text-orange-600">Discount %</label>

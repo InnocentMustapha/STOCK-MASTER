@@ -7,22 +7,13 @@ export interface Currency {
 }
 
 /**
- * Converts an amount from one currency rate to another.
- * Assumes USD as the base currency (rate = 1).
+ * Formats a numeric value in Tanzanian Shillings (TZS).
+ * No conversion is applied - amounts are stored and displayed directly in TZS.
  */
-export const convertPrice = (amount: number, toRate: number): number => {
-    return amount * toRate;
-};
-
-/**
- * Formats a numeric value into a currency-specific string.
- */
-export const formatCurrency = (amount: number, currency: Currency): string => {
-    // Convert from Base (USD) to Target Currency
-    const convertedAmount = amount * currency.rate;
-
-    return `${currency.symbol}${convertedAmount.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
+export const formatCurrency = (amount: number, currency?: Currency): string => {
+    // Always format as TZS without conversion
+    return `TSh ${amount.toLocaleString(undefined, {
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2
     })}`;
 };

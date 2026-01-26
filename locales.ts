@@ -10,12 +10,7 @@ export const LANGUAGES = [
 ];
 
 export const CURRENCIES = [
-  { id: 'USD', symbol: '$', name: 'US Dollar', rate: 1 },
-  { id: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling', rate: 2500 },
-  { id: 'EUR', symbol: '€', name: 'Euro', rate: 0.92 },
-  { id: 'CNY', symbol: '¥', name: 'Chinese Yuan', rate: 7.23 },
-  { id: 'JPY', symbol: '¥', name: 'Japanese Yen', rate: 151.41 },
-  { id: 'KRW', symbol: '₩', name: 'South Korean Won', rate: 1350 },
+  { id: 'TZS', symbol: 'TSh', name: 'Tanzanian Shilling', rate: 1 },
 ];
 
 export const translations: Record<string, any> = {

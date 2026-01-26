@@ -11,7 +11,8 @@ import {
   Box,
   Gavel,
   CreditCard,
-  ShoppingCart
+  ShoppingCart,
+  Settings
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,10 +21,11 @@ interface SidebarProps {
   userRole: UserRole;
   onLogout: () => void;
   userName: string;
+  userAvatar?: string;
   translations: any;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, userRole, onLogout, userName, translations }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, userRole, onLogout, userName, userAvatar, translations }) => {
   const isAdmin = userRole === UserRole.ADMIN || userRole === UserRole.SUPER_ADMIN;
   const isSuperAdmin = userRole === UserRole.SUPER_ADMIN;
 
@@ -60,6 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, userRole, on
     if (!isSuperAdmin) {
       menuItems.push({ id: 'subscription', icon: CreditCard, label: 'Subscription' });
     }
+    menuItems.push({ id: 'profile', icon: Settings, label: 'Shop Profile' });
   }
 
   if (isSuperAdmin) {
@@ -96,8 +99,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, userRole, on
       <div className="p-4 mt-auto">
         <div className="bg-slate-800/50 backdrop-blur-md border border-slate-800 rounded-3xl p-5">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-black text-sm">
-              {userName.charAt(0).toUpperCase()}
+            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-black text-sm overflow-hidden">
+              {userAvatar ? (
+                <img src={userAvatar} alt={userName} className="w-full h-full object-cover" />
+              ) : (
+                userName.charAt(0).toUpperCase()
+              )}
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-bold text-white truncate">{userName}</p>

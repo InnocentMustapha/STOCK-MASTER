@@ -180,6 +180,9 @@ async function migrate() {
         shop_id = auth.uid() OR 
         shop_id = (SELECT owner_id FROM public.profiles WHERE id = auth.uid())
       );
+
+      -- Add Phone to Profiles
+      ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
     `;
 
     console.log('Running migration...');
