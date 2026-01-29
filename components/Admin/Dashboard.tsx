@@ -44,9 +44,11 @@ interface AdminDashboardProps {
   onLogExpense?: (log: any) => Promise<void>;
   expenses?: any[];
   shopName?: string;
+  onSwitchToPOS?: () => void;
+  showPOS?: boolean;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense, expenses, shopName }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, currency, isPremium, dailyRecords, initialCapital, onUpdateRecord, onLogExpense, expenses, shopName, onSwitchToPOS, showPOS }) => {
   const [insight, setInsight] = useState<InventoryInsight | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
 
@@ -131,6 +133,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, sales, curren
           )}
           <h2 className="text-xl font-bold text-slate-400 pl-1 uppercase tracking-widest">Dashboard Overview</h2>
         </div>
+
+        {showPOS && (
+          <button
+            onClick={onSwitchToPOS}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold transition-all active:scale-95 shadow-lg shadow-blue-500/20"
+          >
+            <ShoppingCart size={20} />
+            <span>Open POS</span>
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

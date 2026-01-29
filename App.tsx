@@ -388,7 +388,9 @@ const App: React.FC = () => {
         profit: newSale.totalPrice - (newSale.totalCost || 0),
         seller_id: currentUser?.id,
         seller_name: currentUser?.name || 'Unknown',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        receipt_id: newSale.receiptId,
+        payment_method: newSale.paymentMethod
       };
 
       const { data: insertedSale, error: saleError } = await supabase
@@ -414,7 +416,7 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error('Error adding sale:', err);
-      alert('Failed to record sale. Please try again.');
+      // alert('Failed to record sale. Please try again.'); // Silent fail for batch?
     }
   };
 
@@ -779,8 +781,21 @@ const App: React.FC = () => {
               if (error) console.error('Error logging expense:', error);
             }}
             expenses={expenses}
+            onSwitchToPOS={() => setActiveTab('pos')}
+            showPOS={currentUser.role !== UserRole.SUPER_ADMIN}
           />
         ) : (
+          <SellerDashboard
+            products={products}
+            sales={sales}
+            onSale={addSale}
+            currentUser={currentUser}
+            currency={currentCurrency}
+            categories={categories}
+          />
+        );
+      case 'pos':
+        return (
           <SellerDashboard
             products={products}
             sales={sales}

@@ -3,11 +3,12 @@ import React, { useState, useMemo } from 'react';
 import { Product, Sale, User } from '../../types';
 import { Search, ShoppingCart, Check, X, CreditCard, Tag, Package, Percent, Filter } from 'lucide-react';
 import { formatCurrency } from '../../services/currencyUtils';
+import ReceiptModal from '../Shared/ReceiptModal';
 
 interface SellerDashboardProps {
   products: Product[];
   sales: Sale[];
-  onSale: (sale: Sale) => void;
+  onSale: (sale: Sale, receiptData?: any) => void;
   currentUser: User;
   currency: any;
   categories: string[];
@@ -18,6 +19,11 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [cart, setCart] = useState<{ product: Product; qty: number }[]>([]);
   const [showReport, setShowReport] = useState(false);
+
+  // Receipt & Payment State
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card'>('cash');
+  const [lastReceiptData, setLastReceiptData] = useState<any>(null);
 
   // Load saved cart on mount
   React.useEffect(() => {
@@ -100,6 +106,12 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
   const handleCheckout = () => {
     if (cart.length === 0) return;
 
+    const receiptId = Math.random().toString(36).substr(2, 9).toUpperCase(); // Simple ID generation
+    const timestamp = new Date().toISOString();
+
+    const receiptItems: any[] = [];
+
+    // Process each item
     cart.forEach(item => {
       const finalPrice = getDiscountedPrice(item.product);
       const totalPrice = finalPrice * item.qty;
@@ -114,15 +126,38 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
         totalPrice: totalPrice,
         totalCost: totalCost,
         profit: totalPrice - totalCost,
-        timestamp: new Date().toISOString(),
+        timestamp: timestamp,
         sellerId: currentUser.id,
-        sellerName: currentUser.name
+        sellerName: currentUser.name,
+        receiptId: receiptId,
+        paymentMethod: paymentMethod
       };
-      onSale(sale);
+
+      onSale(sale, null); // Pass null for receiptData per item call, handle batch if needed or just per item
+
+      receiptItems.push({
+        name: item.product.name,
+        quantity: item.qty,
+        price: finalPrice
+      });
     });
 
+    // Prepare Receipt Data
+    const receiptData = {
+      shopName: "Stock Master Store", // Ideally dynamic or from currentUser.ownerName if available? Using static for now
+      receiptId,
+      date: timestamp,
+      items: receiptItems,
+      total: cartTotal,
+      paymentMethod,
+      sellerName: currentUser.name
+    };
+
+    setLastReceiptData(receiptData);
+    setShowReceipt(true);
     setCart([]);
-    alert("Transaction completed successfully!");
+    localStorage.removeItem('sm_cart_backup');
+    // Removed alert to allow receipt flow
   };
 
   const formatPrice = (val: number) => {
@@ -130,7 +165,7 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 relative">
       <div className="xl:col-span-2 space-y-6">
         {/* Search and Filter Bar */}
         <div className="flex flex-col md:flex-row gap-4">
@@ -280,6 +315,29 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
             <span>Subtotal</span>
             <span>{formatPrice(cartTotal)}</span>
           </div>
+
+          {/* Payment Method Selection */}
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            <button
+              onClick={() => setPaymentMethod('cash')}
+              className={`p-2 rounded-xl text-xs font-bold border transition-all ${paymentMethod === 'cash' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+            >
+              CASH
+            </button>
+            <button
+              onClick={() => setPaymentMethod('mobile_money')}
+              className={`p-2 rounded-xl text-xs font-bold border transition-all ${paymentMethod === 'mobile_money' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+            >
+              MOBILE
+            </button>
+            <button
+              onClick={() => setPaymentMethod('card')}
+              className={`p-2 rounded-xl text-xs font-bold border transition-all ${paymentMethod === 'card' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+            >
+              CARD
+            </button>
+          </div>
+
           <div className="flex justify-between text-2xl font-black text-slate-900 pt-2">
             <span>Total</span>
             <span>{formatPrice(cartTotal)}</span>
@@ -290,7 +348,7 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
             className="w-full mt-4 bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl shadow-xl shadow-slate-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
           >
             <CreditCard size={20} />
-            CHECKOUT
+            CHECKOUT ({paymentMethod.replace('_', ' ').toUpperCase()})
           </button>
 
           <div className="grid grid-cols-2 gap-3 mt-4">
@@ -362,6 +420,16 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
             </div>
           </div>
         </div>
+      )}
+
+      {/* Receipt Modal Integration */}
+      {lastReceiptData && (
+        <ReceiptModal
+          isOpen={showReceipt}
+          onClose={() => setShowReceipt(false)}
+          saleData={lastReceiptData}
+          currency={currency}
+        />
       )}
     </div>
   );

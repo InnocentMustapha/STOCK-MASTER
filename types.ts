@@ -52,6 +52,8 @@ export interface Sale {
   timestamp: string;
   sellerId: string;
   sellerName: string;
+  receiptId?: string;
+  paymentMethod?: 'cash' | 'mobile_money' | 'card';
 }
 
 export interface ShopRule {
