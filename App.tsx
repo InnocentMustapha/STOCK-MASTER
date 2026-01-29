@@ -474,10 +474,11 @@ const App: React.FC = () => {
         discount: product.discount
       };
 
-      // Check strictly against the current state in memory to see if it WAS depleted
+      // Check strictly against the current state in memory
       const oldProduct = products.find(p => p.id === product.id);
-      if (oldProduct && oldProduct.quantity <= 0) {
-        // User is restocking a depleted item manually -> Reset initial counter
+
+      // If quantity has changed (or it was 0/depleted), update the initial reference
+      if (oldProduct && oldProduct.quantity !== product.quantity) {
         (dbProduct as any).initial_quantity = product.quantity;
       }
 
@@ -673,12 +674,10 @@ const App: React.FC = () => {
       if (product) {
         // Update existing
         const newQty = product.quantity + quantity;
-        const updatePayload: any = { quantity: newQty };
-
-        // Update initial_quantity if stock was depleted
-        if (product.quantity <= 0) {
-          updatePayload.initial_quantity = newQty;
-        }
+        const updatePayload: any = {
+          quantity: newQty,
+          initial_quantity: newQty // Always reset initial reference on restock
+        };
 
         const { error: prodError } = await supabase.from('products')
           .update(updatePayload)
