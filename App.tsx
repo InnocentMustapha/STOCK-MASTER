@@ -474,6 +474,13 @@ const App: React.FC = () => {
         discount: product.discount
       };
 
+      // Check strictly against the current state in memory to see if it WAS depleted
+      const oldProduct = products.find(p => p.id === product.id);
+      if (oldProduct && oldProduct.quantity <= 0) {
+        // User is restocking a depleted item manually -> Reset initial counter
+        (dbProduct as any).initial_quantity = product.quantity;
+      }
+
       const { error } = await supabase
         .from('products')
         .update(dbProduct)
