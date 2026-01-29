@@ -665,8 +665,16 @@ const App: React.FC = () => {
 
       if (product) {
         // Update existing
+        const newQty = product.quantity + quantity;
+        const updatePayload: any = { quantity: newQty };
+
+        // Update initial_quantity if stock was depleted
+        if (product.quantity <= 0) {
+          updatePayload.initial_quantity = newQty;
+        }
+
         const { error: prodError } = await supabase.from('products')
-          .update({ quantity: product.quantity + quantity })
+          .update(updatePayload)
           .eq('id', productId);
         if (prodError) throw prodError;
       } else {
