@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS public.sales (
   profit NUMERIC,
   seller_id UUID REFERENCES public.profiles(id),
   seller_name TEXT,
-  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  metadata JSONB
 );
 
 ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;

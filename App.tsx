@@ -151,7 +151,8 @@ const App: React.FC = () => {
         id: s.id, productId: s.product_id, productName: s.product_name,
         quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
         totalCost: s.total_cost || 0, profit: s.profit, timestamp: s.timestamp,
-        sellerId: s.seller_id, sellerName: s.seller_name
+        sellerId: s.seller_id, sellerName: s.seller_name,
+        metadata: s.metadata
       })));
 
       // Fetch Rules
@@ -267,7 +268,8 @@ const App: React.FC = () => {
             id: s.id, productId: s.product_id, productName: s.product_name,
             quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
             totalCost: s.total_cost || 0, profit: s.profit, timestamp: s.timestamp,
-            sellerId: s.seller_id, sellerName: s.seller_name
+            sellerId: s.seller_id, sellerName: s.seller_name,
+            metadata: s.metadata
           }]);
         }
         else if (payload.eventType === 'DELETE') {
@@ -390,16 +392,42 @@ const App: React.FC = () => {
         seller_name: currentUser?.name || 'Unknown',
         timestamp: new Date().toISOString(),
         receipt_id: newSale.receiptId,
-        payment_method: newSale.paymentMethod
+        payment_method: newSale.paymentMethod,
+        metadata: newSale.metadata
       };
 
-      const { data: insertedSale, error: saleError } = await supabase
-        .from('sales')
-        .insert([dbSale])
-        .select()
-        .single();
+      let insertedSaleData;
 
-      if (saleError) throw saleError;
+      try {
+        const { data, error } = await supabase
+          .from('sales')
+          .insert([dbSale])
+          .select()
+          .single();
+
+        if (error) {
+          // Check for "column does not exist" error (Postgres 42703)
+          if (error.code === '42703') {
+            console.warn("Metadata column missing, retrying without metadata...");
+            const { metadata, ...saleWithoutMetadata } = dbSale;
+            const { data: retryData, error: retryError } = await supabase
+              .from('sales')
+              .insert([saleWithoutMetadata])
+              .select()
+              .single();
+
+            if (retryError) throw retryError;
+            insertedSaleData = retryData;
+            alert("Sale recorded, but extended details (Pack Info) were not saved. Please contact Admin to update the database.");
+          } else {
+            throw error;
+          }
+        } else {
+          insertedSaleData = data;
+        }
+      } catch (insertError: any) {
+        throw insertError;
+      }
 
       // 2. Update Product Quantity
       const productToUpdate = products.find(p => p.id === newSale.productId);
@@ -414,9 +442,9 @@ const App: React.FC = () => {
 
       await fetchData(); // Auto-refresh data
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding sale:', err);
-      // alert('Failed to record sale. Please try again.'); // Silent fail for batch?
+      alert('Failed to record sale: ' + err.message);
     }
   };
 

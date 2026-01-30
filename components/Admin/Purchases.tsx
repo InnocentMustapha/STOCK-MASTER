@@ -49,6 +49,10 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, categories, c
     const [category, setCategory] = useState(categories && categories.length > 0 ? categories[0] : 'Uncategorized');
     const [sellingPrice, setSellingPrice] = useState(0);
 
+    // New Fields for Unit Handling
+    const [unitType, setUnitType] = useState('Single'); // Single, Dozen, Crate, Carton, Custom
+    const [packSize, setPackSize] = useState(1); // Default 1 for Single
+
     // Derived Values
     // Try to find matching existing product by name (case insensitive)
     const matchingProduct = products.find(p => p.name.toLowerCase() === productInput.toLowerCase());
@@ -57,7 +61,13 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, categories, c
     const agentBalance = agentBalances.find(ab => ab.agent_name.toLowerCase() === agentName.toLowerCase());
     const previousBalance = agentBalance ? agentBalance.balance : 0;
 
+    // Calculate totals based on unit type
+    const finalQuantity = unitType === 'Single' ? quantity : quantity * packSize;
+    // For display, total cost is straightforward: quantity of units/packs * price per unit/pack
     const totalCost = quantity * unitPrice;
+
+    // Calculate per-unit price for inventory tracking
+    const costPerSingleUnit = totalCost / finalQuantity;
     // If there's a previous negative balance (debt), add it to the current cost
     const totalAmountDue = previousBalance < 0 ? totalCost + Math.abs(previousBalance) : totalCost;
     const amountRemained = amountPaid - totalAmountDue; // Positive = Surplus, Negative = Debt
@@ -136,13 +146,18 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, categories, c
                 category: matchingProduct ? matchingProduct.category : category, // Use existing or new category
                 sellingPrice: matchingProduct ? matchingProduct.price : sellingPrice, // Use existing or new price
                 agentName,
-                quantity,
-                unitPrice,
+                quantity: finalQuantity, // Store TOTAL single units
+                unitPrice: costPerSingleUnit, // Store cost per SINGLE unit
                 totalCost,
                 previousBalance, // Include previous balance
                 totalAmountDue, // Total including previous debt
                 amountPaid,
-                amountRemained
+                amountRemained,
+                // Store pack details for reference
+                unitType,
+                packSize: unitType === 'Single' ? 1 : packSize,
+                packQuantity: quantity,
+                packPrice: unitPrice
             }
         };
 
@@ -156,6 +171,8 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, categories, c
         setAmountPaid(0);
         setSellingPrice(0);
         setCategory(categories && categories.length > 0 ? categories[0] : 'Uncategorized');
+        setUnitType('Single');
+        setPackSize(1);
     };
 
     const format = (val: number) => formatCurrency(val, currency);
@@ -471,20 +488,70 @@ const Purchases: React.FC<PurchasesProps> = ({ expenses, products, categories, c
                                     )}
                                 </div>
 
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Quantity</label>
-                                    <input
-                                        required
-                                        type="number"
-                                        min="1"
-                                        value={quantity}
-                                        onChange={(e) => setQuantity(Number(e.target.value))}
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                    />
+                                {/* Unit Type Selection */}
+                                <div className="col-span-2 grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Unit Type</label>
+                                        <select
+                                            value={unitType}
+                                            onChange={(e) => {
+                                                const type = e.target.value;
+                                                setUnitType(type);
+                                                if (type === 'Single') setPackSize(1);
+                                                else if (type === 'Dozen') setPackSize(12);
+                                                else if (type === 'Crate') setPackSize(24);
+                                                else if (type === 'Carton') setPackSize(10); // Check if we should default?
+                                                // Custom keeps current or defaults to 1
+                                            }}
+                                            className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        >
+                                            <option value="Single">Single Item</option>
+                                            <option value="Dozen">Dozen (12)</option>
+                                            <option value="Crate">Crate (24)</option>
+                                            <option value="Carton">Carton</option>
+                                            <option value="Custom">Custom Pack</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                            {unitType === 'Single' ? 'Quantity' : 'Units per Pack'}
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            disabled={unitType === 'Single'}
+                                            value={packSize}
+                                            onChange={(e) => setPackSize(Number(e.target.value))}
+                                            className={`w-full p-3 border border-slate-200 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${unitType === 'Single' ? 'bg-slate-100 text-slate-400' : 'bg-white text-slate-700'}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Unit Price ({currency.symbol})</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                        {unitType === 'Single' ? 'Quantity' : `Number of ${unitType}s`}
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            required
+                                            type="number"
+                                            min="1"
+                                            value={quantity}
+                                            onChange={(e) => setQuantity(Number(e.target.value))}
+                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        />
+                                        {unitType !== 'Single' && (
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                                                = {quantity * packSize} units
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                        {unitType === 'Single' ? 'Unit Price' : `Price per ${unitType}`} ({currency.symbol})
+                                    </label>
                                     <input
                                         required
                                         type="number"

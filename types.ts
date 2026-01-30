@@ -54,6 +54,7 @@ export interface Sale {
   sellerName: string;
   receiptId?: string;
   paymentMethod?: 'cash' | 'mobile_money' | 'card';
+  metadata?: Record<string, any>; // For pack/unit details (e.g. { unitType: "Crate", packSize: 24, packQuantity: 1 })
 }
 
 export interface ShopRule {

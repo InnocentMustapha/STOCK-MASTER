@@ -17,8 +17,22 @@ interface SellerDashboardProps {
 const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSale, currentUser, currency, categories }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [cart, setCart] = useState<{ product: Product; qty: number }[]>([]);
+  // Cart State with extended properties
+  interface CartItem {
+    cartId: string; // Unique ID for the cart line item
+    product: Product;
+    qty: number; // Number of units/packs
+    unitType: string; // 'Single', 'Dozen', etc.
+    packSize: number; // Units per pack (1 for Single)
+    unitPrice: number; // Price per pack/unit
+  }
+
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [showReport, setShowReport] = useState(false);
+
+  // Pack Selection Modal State
+  const [isPackModalOpen, setIsPackModalOpen] = useState(false);
+  const [selectedProductForPack, setSelectedProductForPack] = useState<Product | null>(null);
 
   // Receipt & Payment State
   const [showReceipt, setShowReceipt] = useState(false);
@@ -26,8 +40,9 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
   const [lastReceiptData, setLastReceiptData] = useState<any>(null);
 
   // Load saved cart on mount
+  // Load saved cart on mount
   React.useEffect(() => {
-    const saved = localStorage.getItem('sm_cart_backup');
+    const saved = localStorage.getItem('sm_cart_backup_v2'); // Changed key to avoid collision with old format
     if (saved) {
       try {
         setCart(JSON.parse(saved));
@@ -36,6 +51,11 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
       }
     }
   }, []);
+
+  // Save cart on change
+  React.useEffect(() => {
+    localStorage.setItem('sm_cart_backup_v2', JSON.stringify(cart));
+  }, [cart]);
 
   const dailyStats = useMemo(() => {
     const getLocalDateString = (dateInput: string | Date = new Date()) => {
@@ -67,41 +87,89 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
   const addToCart = (product: Product) => {
     if (product.quantity <= 0) return alert("Out of stock!");
 
+    const cartId = `${product.id}-Single-1`;
+    const price = getDiscountedPrice(product);
+
     setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
+      const existing = prev.find(item => item.cartId === cartId);
       if (existing) {
-        if (existing.qty >= product.quantity) {
+        // Check stock (total units)
+        const currentTotalUnits = prev.reduce((sum, item) => item.product.id === product.id ? sum + (item.qty * item.packSize) : sum, 0);
+        if (currentTotalUnits + 1 > product.quantity) {
           alert("Cannot add more than available stock!");
           return prev;
         }
-        return prev.map(item => item.product.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+        return prev.map(item => item.cartId === cartId ? { ...item, qty: item.qty + 1 } : item);
       }
-      return [...prev, { product, qty: 1 }];
+      return [...prev, {
+        cartId,
+        product,
+        qty: 1,
+        unitType: 'Single',
+        packSize: 1,
+        unitPrice: price
+      }];
     });
   };
 
-  const updateCartQty = (productId: string, newQty: number) => {
-    const product = products.find(p => p.id === productId);
-    if (!product) return;
+  const addPackToCart = (product: Product, unitType: string, packSize: number, packPrice: number, quantity: number) => {
+    const totalUnits = packSize * quantity;
 
-    if (newQty > product.quantity) {
-      alert(`Only ${product.quantity} available in stock!`);
+    // Stock Check
+    const currentCartUnits = cart.reduce((sum, item) => item.product.id === product.id ? sum + (item.qty * item.packSize) : sum, 0);
+
+    if (currentCartUnits + totalUnits > product.quantity) {
+      alert(`Insufficient stock! You need ${totalUnits} units but only have ${product.quantity - currentCartUnits} available.`);
+      return;
+    }
+
+    const cartId = `${product.id}-${unitType}-${packSize}-${packPrice}`; // Unique ID including price if different
+
+    setCart(prev => {
+      const existing = prev.find(item => item.cartId === cartId);
+      if (existing) {
+        return prev.map(item => item.cartId === cartId ? { ...item, qty: item.qty + quantity } : item);
+      }
+      return [...prev, {
+        cartId,
+        product,
+        qty: quantity,
+        unitType,
+        packSize,
+        unitPrice: packPrice
+      }];
+    });
+    setIsPackModalOpen(false);
+  };
+
+  const updateCartQty = (cartId: string, newQty: number) => {
+    const item = cart.find(i => i.cartId === cartId);
+    if (!item) return;
+
+    // Calculate total units used by OTHER items of same product
+    const otherItemsUnits = cart.filter(i => i.cartId !== cartId && i.product.id === item.product.id)
+      .reduce((sum, i) => sum + (i.qty * i.packSize), 0);
+
+    const requiredUnits = newQty * item.packSize;
+
+    if (otherItemsUnits + requiredUnits > item.product.quantity) {
+      alert(`Insufficient stock! Max available: ${Math.floor((item.product.quantity - otherItemsUnits) / item.packSize)} packs`);
       return;
     }
 
     if (newQty <= 0) {
-      removeFromCart(productId);
+      removeFromCart(cartId);
       return;
     }
 
-    setCart(prev => prev.map(item => item.product.id === productId ? { ...item, qty: newQty } : item));
+    setCart(prev => prev.map(i => i.cartId === cartId ? { ...i, qty: newQty } : i));
   };
 
-  const removeFromCart = (id: string) => {
-    setCart(prev => prev.filter(item => item.product.id !== id));
+  const removeFromCart = (cartId: string) => {
+    setCart(prev => prev.filter(item => item.cartId !== cartId));
   };
 
-  const cartTotal = cart.reduce((acc, item) => acc + (getDiscountedPrice(item.product) * item.qty), 0);
+  const cartTotal = cart.reduce((acc, item) => acc + (item.unitPrice * item.qty), 0);
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
@@ -113,16 +181,18 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
 
     // Process each item
     cart.forEach(item => {
-      const finalPrice = getDiscountedPrice(item.product);
+      const finalPrice = item.unitPrice; // Already set in cart
       const totalPrice = finalPrice * item.qty;
-      const totalCost = item.product.buyPrice * item.qty;
+      // Cost is based on SINGLE units bought
+      const totalUnits = item.qty * item.packSize;
+      const totalCost = item.product.buyPrice * totalUnits;
 
       const sale: Sale = {
         id: Math.random().toString(36).substr(2, 9),
         productId: item.product.id,
         productName: item.product.name,
-        quantity: item.qty,
-        unitPrice: finalPrice,
+        quantity: totalUnits, // Store TOTAL UNITS for inventory
+        unitPrice: finalPrice / item.packSize, // Effective unit price
         totalPrice: totalPrice,
         totalCost: totalCost,
         profit: totalPrice - totalCost,
@@ -130,21 +200,27 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
         sellerId: currentUser.id,
         sellerName: currentUser.name,
         receiptId: receiptId,
-        paymentMethod: paymentMethod
+        paymentMethod: paymentMethod,
+        metadata: {
+          unitType: item.unitType,
+          packSize: item.packSize,
+          packPrice: item.unitPrice,
+          packQuantity: item.qty
+        }
       };
 
-      onSale(sale, null); // Pass null for receiptData per item call, handle batch if needed or just per item
+      onSale(sale, null);
 
       receiptItems.push({
-        name: item.product.name,
-        quantity: item.qty,
+        name: `${item.product.name} ${item.unitType !== 'Single' ? `(${item.unitType})` : ''}`,
+        quantity: item.qty, // Display Pack Qty
         price: finalPrice
       });
     });
 
     // Prepare Receipt Data
     const receiptData = {
-      shopName: "Stock Master Store", // Ideally dynamic or from currentUser.ownerName if available? Using static for now
+      shopName: "Stock Master Store",
       receiptId,
       date: timestamp,
       items: receiptItems,
@@ -156,8 +232,7 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
     setLastReceiptData(receiptData);
     setShowReceipt(true);
     setCart([]);
-    localStorage.removeItem('sm_cart_backup');
-    // Removed alert to allow receipt flow
+    localStorage.removeItem('sm_cart_backup_v2');
   };
 
   const formatPrice = (val: number) => {
@@ -250,6 +325,18 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
                     {product.quantity} left
                   </div>
                 </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedProductForPack(product);
+                    setIsPackModalOpen(true);
+                  }}
+                  className="absolute top-2 left-2 p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-colors z-20"
+                  title="Sell in Packs (Dozen, Crate, etc.)"
+                >
+                  <Package size={16} />
+                </button>
               </div>
             );
           })}
@@ -271,16 +358,20 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
             cart.map(item => {
               const finalPrice = getDiscountedPrice(item.product);
               return (
-                <div key={item.product.id} className="group p-3 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-200 transition-colors">
+                <div className="group p-3 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-200 transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h5 className="text-sm font-bold text-slate-700">{item.product.name}</h5>
+                      <h5 className="text-sm font-bold text-slate-700">
+                        {item.product.name}
+                        {item.unitType !== 'Single' && <span className="text-xs text-blue-500 ml-1">({item.unitType})</span>}
+                      </h5>
                       <p className="text-xs font-bold text-blue-600">
-                        {formatPrice(finalPrice)} <span className="text-slate-400 font-normal">/ unit</span>
+                        {formatPrice(item.unitPrice)}
+                        <span className="text-slate-400 font-normal"> / {item.unitType === 'Single' ? 'unit' : 'pack'}</span>
                       </p>
                     </div>
                     <button
-                      onClick={() => removeFromCart(item.product.id)}
+                      onClick={() => removeFromCart(item.cartId)}
                       className="text-slate-400 hover:text-red-500 transition-colors"
                     >
                       <X size={16} />
@@ -292,16 +383,16 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
                       <span className="text-[10px] uppercase font-bold text-slate-400">Qty</span>
                       <input
                         type="number"
-                        min="0.1"
-                        step="0.1"
+                        min="1"
+                        step="1"
                         value={item.qty}
-                        onChange={(e) => updateCartQty(item.product.id, parseFloat(e.target.value) || 0)}
+                        onChange={(e) => updateCartQty(item.cartId, parseFloat(e.target.value) || 0)}
                         className="w-16 font-bold text-slate-800 outline-none text-right bg-transparent"
                       />
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] font-bold text-slate-400 uppercase">Total</p>
-                      <span className="font-black text-slate-800">{formatPrice(item.qty * finalPrice)}</span>
+                      <span className="font-black text-slate-800">{formatPrice(item.qty * item.unitPrice)}</span>
                     </div>
                   </div>
                 </div>
@@ -354,7 +445,7 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
           <div className="grid grid-cols-2 gap-3 mt-4">
             <button
               onClick={() => {
-                localStorage.setItem('sm_cart_backup', JSON.stringify(cart));
+                localStorage.setItem('sm_cart_backup_v2', JSON.stringify(cart));
                 alert("Progress saved!");
               }}
               className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
@@ -431,6 +522,121 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
           currency={currency}
         />
       )}
+
+      {/* Pack Selection Modal */}
+      {isPackModalOpen && selectedProductForPack && (
+        <PackSelectionModal
+          product={selectedProductForPack}
+          currency={currency}
+          onClose={() => setIsPackModalOpen(false)}
+          onAdd={addPackToCart}
+        />
+      )}
+    </div>
+  );
+};
+
+// Sub-component for Pack Selection
+const PackSelectionModal = ({ product, currency, onClose, onAdd }: any) => {
+  const [unitType, setUnitType] = useState('Dozen');
+  const [packSize, setPackSize] = useState(12);
+  const [quantity, setQuantity] = useState(1);
+  const [price, setPrice] = useState(product.sellPrice * 12);
+
+  // Auto-update price when pack size changes if user hasn't customized it? 
+  // For now, just reset to unit*packsize when packsize changes
+  React.useEffect(() => {
+    setPrice(product.sellPrice * packSize);
+  }, [packSize, product.sellPrice]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onAdd(product, unitType, packSize, price, quantity);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 animate-in zoom-in-95 duration-200">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h3 className="text-xl font-black text-slate-800">Sell {product.name}</h3>
+            <p className="text-sm text-slate-500">Add Pack to Cart</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Unit Type</label>
+            <select
+              value={unitType}
+              onChange={(e) => {
+                const type = e.target.value;
+                setUnitType(type);
+                if (type === 'Dozen') setPackSize(12);
+                else if (type === 'Crate') setPackSize(24);
+                else if (type === 'Carton') setPackSize(10);
+              }}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700"
+            >
+              <option value="Dozen">Dozen</option>
+              <option value="Crate">Crate</option>
+              <option value="Carton">Carton</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Units / Pack</label>
+              <input
+                type="number"
+                min="1"
+                value={packSize}
+                onChange={(e) => setPackSize(Number(e.target.value))}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Pack Qty</label>
+              <input
+                type="number"
+                min="1"
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Price Per Pack ({currency.symbol})</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={price}
+              onChange={(e) => setPrice(Number(e.target.value))}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-emerald-600"
+            />
+          </div>
+
+          <div className="pt-2">
+            <div className="flex justify-between text-sm mb-4">
+              <span className="text-slate-500">Total Units:</span>
+              <span className="font-bold text-slate-800">{quantity * packSize} units</span>
+            </div>
+            <button
+              type="submit"
+              className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/20 transition-all active:scale-95"
+            >
+              Add to Cart - {formatCurrency(price * quantity, currency)}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

@@ -93,8 +93,18 @@ async function migrate() {
         profit NUMERIC,
         seller_id UUID REFERENCES public.profiles(id),
         seller_name TEXT,
-        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        seller_name TEXT,
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        metadata JSONB
       );
+      
+      -- Add metadata column to sales if it doesn't exist
+      DO $$
+      BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='metadata') THEN
+              ALTER TABLE public.sales ADD COLUMN metadata JSONB;
+          END IF;
+      END $$;
       ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
       DROP POLICY IF EXISTS "Allow read access to all users" ON public.sales;
       DROP POLICY IF EXISTS "Allow write access to authenticated users" ON public.sales;

@@ -148,8 +148,17 @@ const SalesHistory: React.FC<SalesHistoryProps> = ({ sales, isAdmin, currency })
                           {new Date(sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td className="px-6 py-4">
-                          <span className="font-bold text-slate-700 block">{sale.productName}</span>
-                          <span className="text-xs text-slate-400">ID: #{sale.id.slice(0, 6)}</span>
+                          <span className="font-bold text-slate-700 block text-xs md:text-sm">
+                            {sale.productName}
+                            {sale.metadata?.unitType && sale.metadata.unitType !== 'Single' && (
+                              <span className="text-blue-500 font-normal ml-1">
+                                ({sale.metadata.unitType}) - {sale.metadata.packQuantity} pack(s)
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            ID: #{sale.id.slice(0, 6)} {sale.metadata?.unitType && sale.metadata.unitType !== 'Single' ? `• Pack Size: ${sale.metadata.packSize}` : ''}
+                          </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
