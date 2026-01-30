@@ -256,6 +256,9 @@ const SellerDashboard: React.FC<SellerDashboardProps> = ({ products, sales, onSa
               className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 focus:ring-4 focus:ring-blue-100 outline-none transition-all"
             />
           </div>
+          <div className="flex items-center justify-center px-4 bg-blue-50 text-blue-600 font-bold rounded-2xl border border-blue-100 whitespace-nowrap">
+            v1.1 (Unit Update)
+          </div>
 
           <div className="overflow-x-auto pb-2 md:pb-0 hide-scrollbar flex gap-2">
             <button
