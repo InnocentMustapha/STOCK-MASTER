@@ -71,24 +71,38 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
     const sellerStats = useMemo(() => {
         const daySales = sales.filter(s => s.timestamp.startsWith(selectedDate));
 
-        // 1. Identify all "Sellers" from the Users list
-        // We use 'seller' as the property key to match the rendering code expectation
-        const sellersMap: Record<string, { sales: Sale[], total: number, seller: string }> = {};
+        // Map keyed by sellerId (or unique name fallback)
+        const sellersMap: Record<string, { id: string, name: string, sales: Sale[], total: number }> = {};
 
-        // Initialize with all known sellers (even if 0 sales)
+        // 1. Initialize with all known sellers from Users list
         const sellerUsers = (users || []).filter(u => u.role === UserRole.SELLER || u.role === 'seller');
         sellerUsers.forEach(u => {
-            sellersMap[u.name] = { sales: [], total: 0, seller: u.name };
+            sellersMap[u.id] = { id: u.id, name: u.name, sales: [], total: 0 };
         });
 
         // 2. Distribute sales
         daySales.forEach(sale => {
-            const sellerName = sale.sellerName || 'Unknown';
-            if (!sellersMap[sellerName]) {
-                sellersMap[sellerName] = { sales: [], total: 0, seller: sellerName };
+            // Prefer sellerId, fallback to name for legacy data
+            let key = sale.sellerId;
+
+            // If we have a name but no ID in the sale (legacy), or ID not in map yet?
+            if (!key) {
+                // If no ID, try to find a user with matching name to get their ID, or use name as key
+                const matchingUser = sellerUsers.find(u => u.name === sale.sellerName);
+                key = matchingUser ? matchingUser.id : (sale.sellerName || 'Unknown');
             }
-            sellersMap[sellerName].sales.push(sale);
-            sellersMap[sellerName].total += sale.totalPrice;
+
+            if (!sellersMap[key]) {
+                sellersMap[key] = {
+                    id: key,
+                    name: sale.sellerName || 'Unknown',
+                    sales: [],
+                    total: 0
+                };
+            }
+
+            sellersMap[key].sales.push(sale);
+            sellersMap[key].total += sale.totalPrice;
         });
 
         return Object.values(sellersMap).sort((a, b) => b.total - a.total);
@@ -343,7 +357,7 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                 {sellerStats.length > 0 ? (
                     <div className="space-y-8">
                         {sellerStats.map((stat) => (
-                            <div key={stat.seller} className="border border-slate-200 rounded-2xl overflow-hidden">
+                            <div key={stat.id} className="border border-slate-200 rounded-2xl overflow-hidden">
                                 {/* Seller Header */}
                                 <div className="bg-gradient-to-r from-blue-50 to-slate-50 p-6 border-b border-slate-200">
                                     <div className="flex items-center justify-between flex-wrap gap-4">
@@ -352,7 +366,7 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                                                 <User size={24} />
                                             </div>
                                             <div>
-                                                <h4 className="font-black text-slate-800 text-xl">{stat.seller}</h4>
+                                                <h4 className="font-black text-slate-800 text-xl">{stat.name}</h4>
                                                 <p className="text-sm text-slate-500 font-medium">{stat.sales.length} transaction(s)</p>
                                             </div>
                                         </div>
