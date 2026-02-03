@@ -943,6 +943,7 @@ const App: React.FC = () => {
             sales={sales}
             products={products}
             dailyRecords={dailyRecords}
+            users={users}
             onUpdateRecord={async (record) => {
               const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
               const { error } = await supabase.from('daily_records').upsert({ ...record, shop_id: shopId });

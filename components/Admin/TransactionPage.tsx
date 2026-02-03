@@ -21,16 +21,16 @@ interface TransactionPageProps {
     isAdmin: boolean;
     initialCapital: number;
     onUpdateInitialCapital: (amount: number) => Promise<void>;
-    expenses?: any[];
+    users?: any[];
 }
 
 const TransactionPage: React.FC<TransactionPageProps> = ({
     sales, products, dailyRecords, onUpdateRecord, currency, isPremium, isAdmin,
-    initialCapital, onUpdateInitialCapital, expenses = []
+    initialCapital, onUpdateInitialCapital, expenses = [], users = []
 }) => {
+    // ... existing state ...
     const [selectedDate, setSelectedDate] = useState(getLocalDateISO());
     const [openingBalance, setOpeningBalance] = useState('');
-
     const [capitalInput, setCapitalInput] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
@@ -48,21 +48,10 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
         const totalSalesRevenue = daySales.reduce((sum, s) => sum + s.totalPrice, 0);
 
         // Impact Analysis
-        const salesImpact = totalSalesRevenue; // Positive impact (money in)
-        const purchaseImpact = currentRecord.stock_purchases; // Negative impact (money out for stock)
-
+        const salesImpact = totalSalesRevenue;
+        const purchaseImpact = currentRecord.stock_purchases;
         const netProfit = totalSalesRevenue - (daySales.reduce((sum, s) => sum + (s.totalCost || 0), 0)) - currentRecord.other_expenses;
-
-        // Closing Balance for the day (Cash Flow)
-        // Opening balance removed as requested
         const closingBalance = totalSalesRevenue - currentRecord.stock_purchases - currentRecord.other_expenses;
-
-        // ROI Calculation 
-        // Note: comparing Today's closing balance vs Initial might not be logically perfect for "Growth" if independent days, 
-        // but as per request we just remove opening balance. 
-        // If they want "Growth", usually it's (Current Value - Initial) / Initial.
-        // If Closing Balance represents Current Value (Cash held), then this works for that day's perspective.
-
         const capitalGrowth = initialCapital > 0 ? ((closingBalance - initialCapital) / initialCapital) * 100 : 0;
         const growthAmount = closingBalance - initialCapital;
 
@@ -79,26 +68,32 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
         };
     }, [sales, dailyRecords, selectedDate, initialCapital]);
 
-    // Group sales by seller for the selected date
+    // Group sales by ALL sellers for the selected date
     const sellerStats = useMemo(() => {
         const daySales = sales.filter(s => s.timestamp.startsWith(selectedDate));
-        const groups: Record<string, { sales: Sale[], total: number }> = {};
 
-        daySales.forEach(sale => {
-            const seller = sale.sellerName || 'Unknown';
-            if (!groups[seller]) {
-                groups[seller] = { sales: [], total: 0 };
-            }
-            groups[seller].sales.push(sale);
-            groups[seller].total += sale.totalPrice;
+        // 1. Identify all "Sellers" from the Users list
+        // We use 'seller' as the property key to match the rendering code expectation
+        const sellersMap: Record<string, { sales: Sale[], total: number, seller: string }> = {};
+
+        // Initialize with all known sellers (even if 0 sales)
+        const sellerUsers = users.filter(u => u.role === 'SELLER');
+        sellerUsers.forEach(u => {
+            sellersMap[u.name] = { sales: [], total: 0, seller: u.name };
         });
 
-        return Object.entries(groups).map(([seller, data]) => ({
-            seller,
-            sales: data.sales,
-            total: data.total
-        })).sort((a, b) => b.total - a.total); // Sort by highest total sales
-    }, [sales, selectedDate]);
+        // 2. Distribute sales
+        daySales.forEach(sale => {
+            const sellerName = sale.sellerName || 'Unknown';
+            if (!sellersMap[sellerName]) {
+                sellersMap[sellerName] = { sales: [], total: 0, seller: sellerName };
+            }
+            sellersMap[sellerName].sales.push(sale);
+            sellersMap[sellerName].total += sale.totalPrice;
+        });
+
+        return Object.values(sellersMap).sort((a, b) => b.total - a.total);
+    }, [sales, selectedDate, users]);
 
     const handleSave = async () => {
         setIsSaving(true);
