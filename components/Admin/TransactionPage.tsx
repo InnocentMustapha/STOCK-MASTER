@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo } from 'react';
-import { Sale, Product, DailyRecord } from '../../types';
+import { Sale, Product, DailyRecord, UserRole } from '../../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
@@ -77,7 +76,7 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
         const sellersMap: Record<string, { sales: Sale[], total: number, seller: string }> = {};
 
         // Initialize with all known sellers (even if 0 sales)
-        const sellerUsers = users.filter(u => u.role === 'SELLER');
+        const sellerUsers = (users || []).filter(u => u.role === UserRole.SELLER || u.role === 'seller');
         sellerUsers.forEach(u => {
             sellersMap[u.name] = { sales: [], total: 0, seller: u.name };
         });
