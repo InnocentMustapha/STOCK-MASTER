@@ -237,6 +237,9 @@ const App: React.FC = () => {
       setUsers([]);
       return;
     }
+    // Prevent fetching if Seller doesn't have ownerId yet (waiting for profile load completion)
+    if (currentUser.role === UserRole.SELLER && !currentUser.ownerId) return;
+
     const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
 
     setLoading(true);
@@ -986,8 +989,23 @@ const App: React.FC = () => {
               if (!currentUser) return;
               const shopId = currentUser.role === UserRole.SELLER ? currentUser.ownerId : currentUser.id;
 
+              // Optimistic Update
+              const tempId = 'temp-' + Date.now();
+              const optimisticExpense = { ...expense, id: tempId, shop_id: shopId };
+              setExpenses(prev => [optimisticExpense as any, ...prev]);
+
               // 1. Log Expense
-              await supabase.from('expense_logs').insert({ ...expense, shop_id: shopId });
+              const { data: insertedExpense, error: expenseError } = await supabase.from('expense_logs').insert({ ...expense, shop_id: shopId }).select().single();
+
+              if (expenseError) {
+                console.error('Error logging expense:', expenseError);
+                // Revert on error
+                setExpenses(prev => prev.filter(e => e.id !== tempId));
+                return;
+              }
+
+              // Replace optimistic with real ID
+              setExpenses(prev => prev.map(e => e.id === tempId ? insertedExpense : e));
 
               // 2. Update Daily Record
               const today = new Date().toISOString().split('T')[0];

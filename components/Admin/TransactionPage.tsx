@@ -351,18 +351,23 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                         {sellerStats.map((stat) => (
                             <div key={stat.seller} className="border border-slate-200 rounded-2xl overflow-hidden">
                                 {/* Seller Header */}
-                                <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-sm font-bold text-slate-700 shadow-sm">
-                                            {stat.seller.charAt(0).toUpperCase()}
+                                <div className="bg-gradient-to-r from-blue-50 to-slate-50 p-6 border-b border-slate-200">
+                                    <div className="flex items-center justify-between flex-wrap gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 text-blue-600">
+                                                <User size={24} />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-black text-slate-800 text-xl">{stat.seller}</h4>
+                                                <p className="text-sm text-slate-500 font-medium">{stat.sales.length} transaction(s)</p>
+                                            </div>
                                         </div>
-                                        <h4 className="font-bold text-slate-800 text-lg">{stat.seller}</h4>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Sales:</span>
-                                        <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg font-black text-sm">
-                                            {format(stat.total)}
-                                        </span>
+                                        <div className="px-6 py-3 rounded-2xl border-2 bg-emerald-50 border-emerald-200">
+                                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total Daily Sales</p>
+                                            <p className="text-2xl font-black text-emerald-600">
+                                                {format(stat.total)}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
 
