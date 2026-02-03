@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
     FileText, TrendingUp, TrendingDown, DollarSign, Calendar, Save, Printer,
-    ArrowUpCircle, ArrowDownCircle
+    ArrowUpCircle, ArrowDownCircle, User
 } from 'lucide-react';
 import Reports from './Reports';
 import { getLocalDateISO } from '../../utils/dateUtils';
@@ -78,6 +78,27 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
             growthAmount
         };
     }, [sales, dailyRecords, selectedDate, initialCapital]);
+
+    // Group sales by seller for the selected date
+    const sellerStats = useMemo(() => {
+        const daySales = sales.filter(s => s.timestamp.startsWith(selectedDate));
+        const groups: Record<string, { sales: Sale[], total: number }> = {};
+
+        daySales.forEach(sale => {
+            const seller = sale.sellerName || 'Unknown';
+            if (!groups[seller]) {
+                groups[seller] = { sales: [], total: 0 };
+            }
+            groups[seller].sales.push(sale);
+            groups[seller].total += sale.totalPrice;
+        });
+
+        return Object.entries(groups).map(([seller, data]) => ({
+            seller,
+            sales: data.sales,
+            total: data.total
+        })).sort((a, b) => b.total - a.total); // Sort by highest total sales
+    }, [sales, selectedDate]);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -316,6 +337,93 @@ const TransactionPage: React.FC<TransactionPageProps> = ({
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            {/* Seller Sales Breakdown */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mt-6">
+                <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <User size={18} className="text-blue-600" />
+                    Seller Sales Breakdown
+                </h3>
+
+                {sellerStats.length > 0 ? (
+                    <div className="space-y-8">
+                        {sellerStats.map((stat) => (
+                            <div key={stat.seller} className="border border-slate-200 rounded-2xl overflow-hidden">
+                                {/* Seller Header */}
+                                <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-sm font-bold text-slate-700 shadow-sm">
+                                            {stat.seller.charAt(0).toUpperCase()}
+                                        </div>
+                                        <h4 className="font-bold text-slate-800 text-lg">{stat.seller}</h4>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Sales:</span>
+                                        <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg font-black text-sm">
+                                            {format(stat.total)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Seller Sales Table */}
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-white border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                                            <tr>
+                                                <th className="p-4">Time</th>
+                                                <th className="p-4">Product</th>
+                                                <th className="p-4 text-right">Qty</th>
+                                                <th className="p-4 text-right">Price</th>
+                                                <th className="p-4 text-right">Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-50">
+                                            {stat.sales.map((sale) => (
+                                                <tr key={sale.id} className="hover:bg-slate-50/80 transition-colors">
+                                                    <td className="p-4 font-medium text-slate-500">
+                                                        {new Date(sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </td>
+                                                    <td className="p-4 font-bold text-slate-700">
+                                                        {sale.productName}
+                                                        {sale.metadata?.unitType && sale.metadata.unitType !== 'Single' && (
+                                                            <span className="text-blue-500 font-normal ml-1 text-xs">
+                                                                ({sale.metadata.unitType}) x{sale.metadata.packQuantity}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-4 text-right font-bold text-slate-600">
+                                                        {sale.quantity}
+                                                    </td>
+                                                    <td className="p-4 text-right text-slate-500">
+                                                        {format(sale.unitPrice)}
+                                                    </td>
+                                                    <td className="p-4 text-right font-black text-slate-800">
+                                                        {format(sale.totalPrice)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot className="bg-slate-50/50 border-t border-slate-100">
+                                            <tr>
+                                                <td colSpan={4} className="p-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                                    Seller Total
+                                                </td>
+                                                <td className="p-4 text-right font-black text-emerald-600 text-lg">
+                                                    {format(stat.total)}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        <p className="text-slate-400 font-medium italic">No sales recorded for this date.</p>
+                    </div>
+                )}
             </div>
 
             {/* Existing Reports Charts */}

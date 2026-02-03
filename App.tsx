@@ -146,7 +146,12 @@ const App: React.FC = () => {
       })));
 
       // Fetch Sales
-      const { data: salesData } = await supabase.from('sales').select('*').eq('shop_id', shopId);
+      let salesQuery = supabase.from('sales').select('*').eq('shop_id', shopId);
+      if (currentUser.role === UserRole.SELLER) {
+        salesQuery = salesQuery.eq('seller_id', currentUser.id);
+      }
+      const { data: salesData } = await salesQuery;
+
       setSales((salesData || []).map(s => ({
         id: s.id, productId: s.product_id, productName: s.product_name,
         quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
@@ -264,6 +269,11 @@ const App: React.FC = () => {
       supabase.channel('sales-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'sales', filter: `shop_id=eq.${shopId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
           const s = payload.new;
+          // Filter out if I am a seller and this sale isn't mine
+          if (currentUser.role === UserRole.SELLER && s.seller_id !== currentUser.id) {
+            return;
+          }
+
           setSales(prev => [...prev, {
             id: s.id, productId: s.product_id, productName: s.product_name,
             quantity: s.quantity, unitPrice: s.unit_price, totalPrice: s.total_price,
@@ -273,6 +283,8 @@ const App: React.FC = () => {
           }]);
         }
         else if (payload.eventType === 'DELETE') {
+          // Note: For delete, we might not have the full record in payload.old depending on replica identity.
+          // But assuming we want to remove it regardless if it was in our list:
           setSales(prev => prev.filter(s => s.id !== payload.old.id));
         }
       }).subscribe(),
