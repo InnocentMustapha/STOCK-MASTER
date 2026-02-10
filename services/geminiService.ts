@@ -49,7 +49,7 @@ export const getInventoryInsights = async (products: Product[], sales: Sale[]): 
   try {
     const genAI = getAIClient();
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash",
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -109,38 +109,56 @@ export const getInventoryInsights = async (products: Product[], sales: Sale[]): 
 export const chatWithAdvisor = async (messages: { role: 'user' | 'model', content: string }[], products: Product[], sales: Sale[]): Promise<string> => {
   try {
     const genAI = getAIClient();
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    // Calculate top movers for context
+    // Calculate key metrics for context
+    const deadStock = products.filter(p => !sales.some(s => s.productId === p.id)).map(p => p.name).slice(0, 10);
+    const lowStock = products.filter(p => p.quantity <= p.minThreshold).map(p => p.name).slice(0, 10);
+    const totalRevenue = sales.reduce((acc, s) => acc + s.totalPrice, 0);
+    const totalProfit = sales.reduce((acc, s) => acc + s.profit, 0);
+
+    // Contextual Data Injection
     const topProducts = products
       .map(p => ({
         name: p.name,
         profit: p.sellPrice - p.buyPrice,
-        stock: p.quantity
+        stock: p.quantity,
+        sold: sales.filter(s => s.productId === p.id).reduce((sum, s) => sum + s.quantity, 0)
       }))
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 5);
 
     const context = `
-      You are a Smart AI Business Assistant for "Stock Master".
-      
+      You are an EXPERT RETAIL BUSINESS CONSULTANT and AI Assistant for "Stock Master".
+      Your name is "Stock Master Advisor".
+
+      YOUR GOAL:
+      To help the shop owner MAXIMIZE PROFIT, reduce waste, and grow their business. You are not just a chatbot; you are a business partner.
+
       CORE DIRECTIVES:
-      1. **LANGUAGE ADAPTABILITY**: You MUST detect the language of the user's message and RESPOND IN THE EXACT SAME LANGUAGE. (e.g., User: "Habari?" -> You: "Nzuri! Naitwa..."). This is critical.
-      2. **SCOPE**: You can answer ANY question related to business, not just about this shop. (e.g., Marketing theories, general accounting, hiring tips).
-      3. **DATA AWARENESS**: You have access to the shop's live data (below). Use it to give specific examples if the user asks about *their* shop.
+      1. **LANGUAGE ADAPTABILITY**: You MUST detect the language of the user's message and RESPOND IN THE EXACT SAME LANGUAGE. (e.g., User: "Habari?" -> You: "Nzuri! Naitwa...").
+      2. **BE PROACTIVE**: Don't just answer the question. Offer *strategic advice* based on the data below.
+      3. **USE DATA**: Always reference the specific shop data provided below to back up your advice.
       
-      Shop Data Preview:
-      - Top Profitable Items: ${JSON.stringify(topProducts)}
-      - Active Products: ${products.length}
-      - Total Sales History: ${sales.length}
+      SHOP DATA DASHBOARD:
+      - **Financial Health**: Total Revenue: ${totalRevenue.toLocaleString()}, Total Profit: ${totalProfit.toLocaleString()}.
+      - **Top Money Makers**: ${JSON.stringify(topProducts.map(p => `${p.name} (Profit/Unit: ${p.profit}, Sold: ${p.sold})`))}
+      - **DEAD STOCK (Action Needed)**: ${deadStock.length > 0 ? deadStock.join(', ') : "None! Good job."} (These items have 0 sales. Suggest clearance or bundling).
+      - **LOW STOCK ALERT**: ${lowStock.length > 0 ? lowStock.join(', ') : "Inventory levels are healthy."} (Warn the user to restock these).
+
+      BUSINESS PRINCIPLES TO TEACH:
+      - **Turnover**: "Stock that sits is money lost." Encourage selling dead stock at cost to free up cash.
+      - **Margins**: "Revenue is vanity, Profit is sanity." Focus on high-margin items.
+      - **Customer Retention**: Suggest loyalty ideas if asked about growth.
       
-      Be professional, concise, and helpful in the user's chosen language.
+      TONE:
+      Professional, enthusiastic, wise, and action-oriented. Keep answers concise.
     `;
 
     const chat = model.startChat({
       history: [
         { role: 'user', parts: [{ text: context }] },
-        { role: 'model', parts: [{ text: "Understood. I will listen to the user's language and answer any business question they have, using the shop data when needed." }] }
+        { role: 'model', parts: [{ text: "Understood. I am ready to act as an Expert Retail Consultant. I will analyze the provided shop data (Dead Stock, Margins, Sales) to give specific, profitable advice in the user's language." }] }
       ]
     });
 

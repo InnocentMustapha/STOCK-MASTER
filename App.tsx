@@ -15,7 +15,7 @@ import ShopRules from './components/Admin/ShopRules';
 import Motto from './components/Admin/Motto';
 import Subscription from './components/Admin/Subscription';
 import SubscriptionVerification from './components/Admin/SubscriptionVerification';
-import AIAdvisorChat from './components/Shared/AIAdvisorChat';
+// import AIAdvisorChat from './components/Shared/AIAdvisorChat';
 import TransactionPage from './components/Admin/TransactionPage';
 import {
   Users, FilePieChart, Package, LayoutDashboard, History,
@@ -1194,9 +1194,9 @@ const App: React.FC = () => {
           </div>
         </footer>
 
-        {currentUser && (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.SUPER_ADMIN) && (
+        {/* {currentUser && (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.SUPER_ADMIN) && (
           <AIAdvisorChat products={products} sales={sales} />
-        )}
+        )} */}
       </main>
     </div>
   );
