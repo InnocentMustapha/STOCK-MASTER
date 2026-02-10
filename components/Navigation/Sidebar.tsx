@@ -121,6 +121,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, userRole, on
             <LogOut size={14} />
             {translations.logout}
           </button>
+          <div className="mt-3 text-center">
+            <p className="text-[10px] text-slate-600 font-mono">v1.5.0 (AI Removed)</p>
+          </div>
         </div>
       </div>
     </aside>
